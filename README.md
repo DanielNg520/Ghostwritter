@@ -4,7 +4,7 @@ Ghost Writer is a Chrome extension that helps you write Amazon Vine product revi
 
 The extension is the app. A small local Python server sits behind it (Chrome extensions can't run AI CLIs or call arbitrary APIs with a hidden key directly) — start it once, then everything happens from the side panel.
 
-By default, review generation runs through the local [`agy`](https://github.com/antigravity-ai) CLI. You can instead configure **OpenRouter**, **Groq**, or **your own local model** (Ollama, LM Studio, llama.cpp, vLLM — anything OpenAI-compatible) as the active provider in Settings. Whichever one is selected still uses your rules, memory, and writing samples the same way agy does, and if the selected provider fails, Ghost Writer automatically falls back to agy.
+By default, review generation runs through the local `agy` CLI (the Antigravity CLI — install it separately and make sure it's on your `PATH`). You can instead configure **OpenRouter**, **Groq**, or **your own local model** (Ollama, LM Studio, llama.cpp, vLLM — anything OpenAI-compatible) as the active provider in Settings. Whichever one is selected still uses your rules, memory, and writing samples the same way agy does, and if the selected provider fails, Ghost Writer automatically falls back to agy.
 
 ---
 

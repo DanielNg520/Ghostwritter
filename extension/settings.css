@@ -52,7 +52,8 @@ p {
 
 .provider-row label[for="provider-agy"],
 .provider-row label[for="provider-openrouter"],
-.provider-row label[for="provider-groq"] {
+.provider-row label[for="provider-groq"],
+.provider-row label[for="provider-local"] {
   font-size: 1rem;
   font-weight: 600;
   color: #111;
@@ -63,7 +64,10 @@ p {
 .provider-row label[for="openrouter-api-key"],
 .provider-row label[for="openrouter-model"],
 .provider-row label[for="groq-api-key"],
-.provider-row label[for="groq-model"] {
+.provider-row label[for="groq-model"],
+.provider-row label[for="local-endpoint"],
+.provider-row label[for="local-model"],
+.provider-row label[for="local-api-key"] {
   font-size: 0.8125rem;
   font-weight: 500;
   color: #666;
