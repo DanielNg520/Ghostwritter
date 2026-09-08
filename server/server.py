@@ -10,15 +10,24 @@ from pydantic import BaseModel
 
 import review_engine as gw
 
-# Phase 2: idle self-shutdown. `last_activity` is updated on every HTTP
-# request by the middleware below. When the server is launched with
-# `--managed` (i.e. spawned on-demand by native-host/host.py), a background
-# thread watches this timestamp and exits the process once it's been idle
-# longer than IDLE_TIMEOUT_SECONDS. When launched manually (no --managed
-# flag, e.g. via start_server.command), the watcher thread is never started,
-# so the server behaves exactly as it always has and never self-exits.
+# Phase 2: idle self-shutdown. `last_activity` is updated when an HTTP
+# request finishes (not when it starts — see `active_requests` below).
+# When the server is launched with `--managed` (i.e. spawned on-demand by
+# native-host/host.py), a background thread watches this timestamp and
+# exits the process once it's been idle longer than IDLE_TIMEOUT_SECONDS.
+# When launched manually (no --managed flag, e.g. via start_server.command),
+# the watcher thread is never started, so the server behaves exactly as it
+# always has and never self-exits.
+#
+# `active_requests` guards against the watchdog killing the process mid
+# request: /generate-review's refine loop can chain up to ~12 sequential
+# `agy` subprocess calls and comfortably exceed IDLE_TIMEOUT_SECONDS on its
+# own, so "idle" must mean "no in-flight requests", not just "stale
+# last_activity timestamp".
 IDLE_TIMEOUT_SECONDS = 300
 last_activity = time.time()
+active_requests = 0
+active_requests_lock = threading.Lock()
 
 
 class GenerateReviewRequest(BaseModel):
@@ -70,9 +79,15 @@ app.add_middleware(
 
 @app.middleware("http")
 async def track_activity(request, call_next):
-    global last_activity
-    last_activity = time.time()
-    return await call_next(request)
+    global last_activity, active_requests
+    with active_requests_lock:
+        active_requests += 1
+    try:
+        return await call_next(request)
+    finally:
+        with active_requests_lock:
+            active_requests -= 1
+        last_activity = time.time()
 
 
 @app.post("/generate-review")
@@ -223,6 +238,8 @@ def _idle_watchdog():
     """
     while True:
         time.sleep(30)
+        if active_requests > 0:
+            continue
         if time.time() - last_activity > IDLE_TIMEOUT_SECONDS:
             os._exit(0)
 
