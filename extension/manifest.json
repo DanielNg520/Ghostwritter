@@ -3,11 +3,13 @@
   "name": "Ghost Writer",
   "version": "1.0",
   "description": "Amazon Vine review-writing assistant.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoNMFUJc/uWGBfUoXFP4HXf1qSBgWfk5xV3+ZinQnJQKP7JTAt6Q2I9HYhmfSmi8N35ZZH2/rXtCi3LRDQhMlyJRgDoNvLu+7doNRSmf8OPPm68K74PmesTbCom5aGp+OZFzO4WMolWg/pqmuE9xkFO+fqOLeizg0fRGo2n8hLMs4oaGElgKUtRBtYE+tAwJA/0KSB88rIDlMlOWtE5xEM9knpkoZG9WnnOroY0TpeMn2xUc+hIbCmk1x6o9lBfxcgPtXdq2/6eqvsm4oWw7oHgtyzXWtW0i4MDWW0WdqRV4d2i6Xc87VDnM2kfq9ZHpMoTxt/Ni3PlFInSE+lcuWsQIDAQAB",
   "permissions": [
     "sidePanel",
     "scripting",
     "activeTab",
-    "storage"
+    "storage",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "*://*.amazon.com/*",

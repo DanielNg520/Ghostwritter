@@ -1,0 +1,7 @@
+{
+  "name": "com.ghostwriter.host",
+  "description": "Ghost Writer local server launcher",
+  "path": "__HOST_PY_PATH__",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://__EXTENSION_ID__/"]
+}

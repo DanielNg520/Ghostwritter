@@ -8,13 +8,20 @@ __pycache__/
 .DS_Store
 
 # Personal content — real writing samples, rules, memory, and generated
-# reviews never get committed. See docs/*.example and workspace/*/README.md.
+# reviews/writing never get committed. See docs/*.example. Sample category
+# folders (workspace/sample/<category>/) are kept via .gitkeep so a fresh
+# clone has the right structure, but files inside them are ignored.
 docs/RULES.MD
 docs/MEMORY.MD
 workspace/sample/*
 !workspace/sample/.gitkeep
+!workspace/sample/*/
+workspace/sample/*/*
+!workspace/sample/*/.gitkeep
 workspace/review/*
 !workspace/review/.gitkeep
+workspace/writing/*
+!workspace/writing/.gitkeep
 
 # Secrets — no API keys or local config ever get committed. Provider
 # settings live in the browser's chrome.storage.local, not in a file, but

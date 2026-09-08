@@ -5,14 +5,42 @@
   <link rel="stylesheet" href="sidebar.css">
 </head>
 <body>
-  <button id="settings-btn" title="Settings">⚙</button>
-  <h1>Ghost Writer</h1>
-  <label for="comment">Notes</label>
-  <textarea id="comment" placeholder="Notes about this product (optional)..."></textarea>
+  <div id="header-bar">
+    <img class="app-icon" src="icons/icon32.png" alt="">
+    <h1>Ghost Writer</h1>
+    <button id="settings-btn" title="Settings">⚙</button>
+  </div>
+
+  <div id="mode-toggle">
+    <button id="mode-review-btn" class="mode-btn active" type="button">Product Review</button>
+    <button id="mode-general-btn" class="mode-btn" type="button">General Writer</button>
+  </div>
+
+  <div id="review-section">
+    <label for="comment">Notes</label>
+    <textarea id="comment" placeholder="Notes about this product (optional)..."></textarea>
+  </div>
+
+  <div id="general-section" hidden>
+    <label for="category-select">Category</label>
+    <select id="category-select">
+      <option value="formal">Formal</option>
+      <option value="casual">Casual</option>
+      <option value="academic">Academic</option>
+      <option value="creative">Creative</option>
+      <option value="narrative">Narrative</option>
+      <option value="technical">Technical</option>
+      <option value="review">Review</option>
+    </select>
+    <label for="prompt">What do you need written?</label>
+    <textarea id="prompt" placeholder="Describe what you want written..."></textarea>
+  </div>
+
   <button id="generate-btn">Generate Review</button>
-  <div id="loading" hidden>Generating...</div>
+  <div id="loading" hidden><span class="spinner" aria-hidden="true"></span><span class="loading-text">Generating&hellip;</span></div>
   <textarea id="output" readonly placeholder="Generated review will appear here..."></textarea>
   <div id="status-message"></div>
+  <script src="generic_scrape.js"></script>
   <script src="sidebar.js"></script>
 </body>
 </html>
