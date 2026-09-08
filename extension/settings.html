@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ghost Writer Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <h1>Ghost Writer Settings</h1>
+  <p>Choose which AI generates your reviews. If the selected API fails, Ghost Writer automatically falls back to the local agy CLI.</p>
+
+  <div class="provider-row">
+    <input type="radio" name="provider" value="agy" id="provider-agy">
+    <label for="provider-agy">Agy only (local CLI, no API key needed)</label>
+  </div>
+
+  <div class="provider-row">
+    <input type="radio" name="provider" value="openrouter" id="provider-openrouter">
+    <label for="provider-openrouter">OpenRouter</label>
+    <label for="openrouter-api-key">API Key</label>
+    <input type="password" id="openrouter-api-key" placeholder="API key">
+    <label for="openrouter-model">Model Slug</label>
+    <input type="text" id="openrouter-model" placeholder="Model slug (e.g. openai/gpt-4o-mini)">
+  </div>
+
+  <div class="provider-row">
+    <input type="radio" name="provider" value="groq" id="provider-groq">
+    <label for="provider-groq">Groq</label>
+    <label for="groq-api-key">API Key</label>
+    <input type="password" id="groq-api-key" placeholder="API key">
+    <label for="groq-model">Model Slug</label>
+    <input type="text" id="groq-model" placeholder="Model slug (e.g. llama-3.3-70b-versatile)">
+  </div>
+
+  <div class="provider-row">
+    <input type="radio" name="provider" value="local" id="provider-local">
+    <label for="provider-local">Local model</label>
+    <label for="local-endpoint">Endpoint URL</label>
+    <input type="text" id="local-endpoint" placeholder="e.g. http://localhost:11434/v1/chat/completions">
+    <label for="local-model">Model Slug</label>
+    <input type="text" id="local-model" placeholder="Model name/tag as your server expects it">
+    <label for="local-api-key">API Key (optional)</label>
+    <input type="password" id="local-api-key" placeholder="Only if your local server requires one">
+  </div>
+
+  <button id="save-btn">Save Settings</button>
+  <div id="settings-status"></div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

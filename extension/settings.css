@@ -1,0 +1,110 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: #f9f9f9;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 32px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #111;
+}
+
+p {
+  margin: 0;
+  color: #666;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.provider-row {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 12px;
+  background-color: #fff;
+}
+
+.provider-row input[type="radio"] {
+  position: absolute;
+  top: 18px;
+  left: 16px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.provider-row label {
+  font-size: 0.8125rem;
+  color: #666;
+}
+
+.provider-row label[for="provider-agy"],
+.provider-row label[for="provider-openrouter"],
+.provider-row label[for="provider-groq"] {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111;
+  margin-left: 26px;
+  cursor: pointer;
+}
+
+.provider-row label[for="openrouter-api-key"],
+.provider-row label[for="openrouter-model"],
+.provider-row label[for="groq-api-key"],
+.provider-row label[for="groq-model"] {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #666;
+  margin-top: 10px;
+  margin-bottom: 4px;
+}
+
+.provider-row input[type="password"],
+.provider-row input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  margin-bottom: 8px;
+}
+
+.provider-row input[type="password"]:last-child,
+.provider-row input[type="text"]:last-child {
+  margin-bottom: 0;
+}
+
+#save-btn {
+  background-color: #0066cc;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+#save-btn:hover {
+  background-color: #0052a3;
+}
+
+#settings-status {
+  font-size: 0.875rem;
+  color: #2e7d32;
+}

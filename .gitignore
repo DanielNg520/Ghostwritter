@@ -1,0 +1,27 @@
+# Python / Node
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+
+# OS cruft
+.DS_Store
+
+# Personal content — real writing samples, rules, memory, and generated
+# reviews never get committed. See docs/*.example and workspace/*/README.md.
+docs/RULES.MD
+docs/MEMORY.MD
+workspace/sample/*
+!workspace/sample/.gitkeep
+workspace/review/*
+!workspace/review/.gitkeep
+
+# Secrets — no API keys or local config ever get committed. Provider
+# settings live in the browser's chrome.storage.local, not in a file, but
+# this covers any local override/secrets file if one is ever added.
+.env
+.env.*
+!.env.example
+secrets.json
+secrets.*.json
+config.local.*
