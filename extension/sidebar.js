@@ -84,7 +84,7 @@ async function generateReview() {
     }),
   });
 
-  if (!response.ok) throw new Error("Request failed");
+  if (!response.ok) throw new Error(await extractErrorDetail(response));
 
   const data = await response.json();
   output.value = data.review;
@@ -120,13 +120,25 @@ async function generateWriting() {
     }),
   });
 
-  if (!response.ok) throw new Error("Request failed");
+  if (!response.ok) throw new Error(await extractErrorDetail(response));
 
   const data = await response.json();
   output.value = data.writing;
   if (data.provider_warning) {
     statusMessage.textContent = data.provider_warning;
   }
+}
+
+// Pulls FastAPI's {"detail": "..."} out of a non-ok response so the status
+// message can show what actually went wrong, instead of a generic string.
+async function extractErrorDetail(response) {
+  try {
+    const data = await response.json();
+    if (data?.detail) return data.detail;
+  } catch {
+    // response body wasn't JSON — fall through to the generic message below
+  }
+  return `Request failed (HTTP ${response.status})`;
 }
 
 generateBtn.addEventListener("click", async () => {
@@ -141,7 +153,14 @@ generateBtn.addEventListener("click", async () => {
       await generateWriting();
     }
   } catch (err) {
-    statusMessage.textContent = "Make sure the background server is running!";
+    // A fetch()-level network failure (server unreachable) throws a bare
+    // TypeError with no useful message; every other failure — a non-ok HTTP
+    // response, or chrome.tabs.sendMessage rejecting when not on an Amazon
+    // page — carries a real message worth showing instead of guessing.
+    statusMessage.textContent =
+      err instanceof TypeError
+        ? "Make sure the background server is running!"
+        : err.message;
   } finally {
     loading.hidden = true;
     generateBtn.disabled = false;

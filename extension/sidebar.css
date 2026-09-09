@@ -143,6 +143,14 @@ label {
   gap: var(--space-3);
 }
 
+/* [id][hidden] outweighs the plain #id rule above, so toggling the
+   `hidden` attribute in sidebar.js actually hides the section instead of
+   being silently overridden by the unconditional `display: flex`. */
+#review-section[hidden],
+#general-section[hidden] {
+  display: none;
+}
+
 #comment,
 #prompt,
 #output,
