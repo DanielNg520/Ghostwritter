@@ -32,23 +32,43 @@ By default, generation runs through the local `agy` CLI (the Antigravity CLI —
 
 3. **Add writing samples** — see [Writing Samples & Categories](#writing-samples--categories) below. You can drop files directly into `workspace/sample/<category>/`, or (once the extension is loaded) upload/paste them from the Settings page instead.
 
-4. **Set up dependencies once.** The native host and server share the repo's `.venv`. If you've never run this project before:
+4. **Run the setup script once per machine** (macOS or Linux):
    ```
-   ./start_server.command
+   ./setup.sh
    ```
-   Let it finish installing (`fastapi`/`uvicorn`/`requests`) and creating `.venv`, then close it — you won't need to run this manually going forward (see step 6).
+   This creates `.venv`, installs the pinned Python dependencies from `server/requirements.txt`, scaffolds `docs/RULES.MD`/`docs/MEMORY.MD` from the examples if they don't exist yet, creates the `workspace/` folders, and tells you whether `agy`/`claude`/`sops` are available. It's safe to re-run any time — e.g. after unzipping this repo onto a new machine, it rebuilds `.venv` automatically if it detects one built for a different OS.
 
-5. **Load the extension.** In Chrome, go to `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select the `extension/` folder. Note the **ID** Chrome shows for it (the extension pins a fixed key in `manifest.json`, so this ID is deterministic and won't change on reload — expect `djollbmehcmhelbfnhhogookmleldfmc` unless you've regenerated the key).
+5. **Load the extension.** In Chrome, go to `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select the `extension/` folder. Note the **ID** Chrome shows for it (the extension pins a fixed key in `manifest.json`, so this ID is deterministic and won't change on reload or across machines — expect `djollbmehcmhelbfnhhogookmleldfmc` unless you've regenerated the key).
 
 6. **Install the native messaging host, once per machine:**
    ```
-   ./native-host/install.sh <extension-id-from-step-5>
+   ./setup.sh <extension-id-from-step-5>
    ```
-   This registers `native-host/host.py` with Chrome so it can auto-launch the local server. On Windows, use `native-host/install.ps1 <extension-id>` instead (best-effort — macOS is the primary target).
+   (or directly: `./native-host/install.sh <extension-id>`). This registers `native-host/host.py` with every Chromium-family browser it finds installed (Chrome, Chromium, Brave, Edge) on macOS or Linux, so it can auto-launch the local server. On Windows, use `native-host/install.ps1 <extension-id>` instead (best-effort — macOS/Linux are the primary targets).
 
 7. **Use it.** Click the Ghost Writer toolbar icon to open the side panel on any page. Pick **Product Review** (on an Amazon product page) or **General Writer** (any page), fill in the notes/prompt, and click Generate. The first click of the session may take a couple seconds while the native host spins the server up — after that it's instant. If you leave the panel idle for 5+ minutes, the server exits on its own; the next click starts it again transparently.
 
 Requires: Python 3, and either the `agy` CLI on your `PATH` or an API key / local model endpoint configured in Settings.
+
+---
+
+## Moving to another machine
+
+To move this whole setup (rules, memory, writing samples, encrypted secrets included) to another computer — e.g. zip it up and copy it to a Fedora box:
+
+```
+./package.sh                 # writes ../Ghostwriter.zip, excluding .venv/.git/__pycache__
+```
+
+On the target machine:
+```
+unzip Ghostwriter.zip
+cd Ghostwriter
+./setup.sh                   # rebuilds .venv for that machine's OS/arch
+./setup.sh <extension-id>    # after loading the extension there, installs the native host
+```
+
+`config/secrets.enc.yaml` travels with the zip (it's sops-encrypted, safe to send), but it only decrypts on a machine that also has your age key at `~/.config/sops/age/keys.txt` (or `SOPS_AGE_KEY_FILE`) — copy that separately if you want the OpenRouter/Groq defaults to work there too. It's optional either way: without it, just fill in Settings by hand.
 
 ---
 
@@ -130,6 +150,8 @@ Persistent background context the AI carries into every request — describe you
 Ghostwriter/
 ├── README.md
 ├── .gitignore
+├── setup.sh                     <- one-shot install: venv, deps, config scaffolding, native host
+├── package.sh                   <- zips the repo cleanly for moving to another machine
 ├── start_server.command         <- manual/dev fallback: start the server without idle-shutdown
 ├── extension/                   <- the app itself, loaded into Chrome
 │   ├── manifest.json              <- pinned "key" (stable extension ID) + nativeMessaging permission
@@ -142,11 +164,12 @@ Ghostwriter/
 ├── native-host/                 <- Chrome Native Messaging host (auto start-on-demand)
 │   ├── host.py                    <- spawned by Chrome; ensures the server is running, then exits on disconnect
 │   ├── com.ghostwriter.host.json.template
-│   ├── install.sh                  <- run once per machine (macOS/Linux)
+│   ├── install.sh                  <- run once per machine (macOS/Linux, all Chromium-family browsers)
 │   └── install.ps1                 <- best-effort Windows equivalent
 ├── server/                      <- local API server behind the extension
 │   ├── server.py                   <- FastAPI app: /generate-review, /generate-writing, /samples, /health
-│   └── review_engine.py            <- prompt building, category-aware samples, provider calls, AI-detection scoring
+│   ├── review_engine.py            <- prompt building, category-aware samples, provider calls, AI-detection scoring
+│   └── requirements.txt            <- pinned Python deps, installed by setup.sh
 ├── docs/
 │   ├── RULES.MD.example            <- copy to RULES.MD and edit (gitignored)
 │   ├── MEMORY.MD.example           <- copy to MEMORY.MD and edit (gitignored)
@@ -191,9 +214,11 @@ Make sure the local server is reachable (open the side panel once to trigger the
 
 | Task | Action |
 |------|--------|
+| Set up dependencies (once per machine) | `./setup.sh` |
 | Load/reload the extension | `chrome://extensions` → Load unpacked → `extension/` |
-| Install the native host (once per machine) | `./native-host/install.sh <extension-id>` |
-| Set up your rules/memory | `cp docs/RULES.MD.example docs/RULES.MD` (same for MEMORY.MD), then edit |
+| Install the native host (once per machine) | `./setup.sh <extension-id>` or `./native-host/install.sh <extension-id>` |
+| Move this setup to another machine | `./package.sh`, then unzip + `./setup.sh` there |
+| Set up your rules/memory | `cp docs/RULES.MD.example docs/RULES.MD` (same for MEMORY.MD), then edit — `setup.sh` does this for you if missing |
 | Add writing samples | Settings → Writing Samples, or drop files into `workspace/sample/<category>/` |
 | Choose a provider | Gear icon in the side panel |
 | Find finished Product Reviews | `workspace/review/` |
