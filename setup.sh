@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 # One-shot setup for Ghost Writer: creates the venv, installs Python
-# dependencies, scaffolds personal config files, and (optionally) installs
-# the Chrome native-messaging host. Safe to re-run any time, on any machine
-# (macOS or Linux) — e.g. after unzipping this repo onto a fresh box.
+# dependencies, scaffolds personal config files, installs the Chrome
+# native-messaging host, and (optionally) loads the extension into Chrome
+# automatically. Safe to re-run any time, on any machine (macOS or Linux) —
+# e.g. after unzipping this repo onto a fresh box.
 #
 # Usage:
-#   ./setup.sh                     # deps + scaffolding only
-#   ./setup.sh <extension-id>      # also installs the native messaging host
+#   ./setup.sh                     # everything, including auto-detecting the extension ID
+#   ./setup.sh <extension-id>      # override the auto-detected ID (e.g. a re-keyed fork)
+#   ./setup.sh --no-chrome         # skip the "quit & relaunch Chrome" step
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-EXTENSION_ID="${1:-}"
+LOAD_CHROME=1
+EXTENSION_ID=""
+for arg in "$@"; do
+  case "${arg}" in
+    --no-chrome) LOAD_CHROME=0 ;;
+    *) EXTENSION_ID="${arg}" ;;
+  esac
+done
 
 echo "======================================"
 echo "        Ghost Writer Setup            "
@@ -98,16 +107,100 @@ if [ -f "config/secrets.enc.yaml" ]; then
   fi
 fi
 
+# ── Extension ID ──────────────────────────────────────────────────────────
+# extension/manifest.json pins a fixed RSA "key", which makes Chrome's
+# derived extension ID deterministic — the same on every machine. We can
+# compute it ourselves (same algorithm Chrome uses: sha256 of the decoded
+# key, first 16 bytes, each hex nibble mapped to a-p) instead of asking you
+# to copy it out of chrome://extensions.
+if [ -z "${EXTENSION_ID}" ]; then
+  EXTENSION_ID="$("${PYTHON_BIN}" - <<'PYEOF'
+import base64, hashlib, json
+manifest = json.load(open("extension/manifest.json"))
+key_bytes = base64.b64decode(manifest["key"])
+digest = hashlib.sha256(key_bytes).hexdigest()
+print("".join(chr(int(c, 16) + ord("a")) for c in digest[:32]))
+PYEOF
+  )"
+  echo "[ok] extension ID (derived from manifest.json's pinned key): ${EXTENSION_ID}"
+fi
+
 # ── Native messaging host ────────────────────────────────────────────────────
 echo ""
-if [ -n "${EXTENSION_ID}" ]; then
-  ./native-host/install.sh "${EXTENSION_ID}"
+./native-host/install.sh "${EXTENSION_ID}"
+
+# ── Load the extension into Chrome ───────────────────────────────────────────
+echo ""
+EXTENSION_DIR="${SCRIPT_DIR}/extension"
+
+find_chrome_binary() {
+  case "$(uname -s)" in
+    Darwin)
+      for candidate in \
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+        "/Applications/Chromium.app/Contents/MacOS/Chromium" \
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" \
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"; do
+        if [ -x "${candidate}" ]; then echo "${candidate}"; return; fi
+      done
+      ;;
+    Linux)
+      for candidate in google-chrome-stable google-chrome chromium-browser chromium brave-browser microsoft-edge-stable; do
+        if command -v "${candidate}" >/dev/null 2>&1; then command -v "${candidate}"; return; fi
+      done
+      ;;
+  esac
+}
+
+wait_for_exit() {
+  # $1 = pgrep pattern
+  for _ in $(seq 1 20); do
+    pgrep -f "$1" >/dev/null 2>&1 || return 0
+    sleep 0.5
+  done
+}
+
+if [ "${LOAD_CHROME}" -eq 1 ]; then
+  CHROME_BIN="$(find_chrome_binary || true)"
+  if [ -z "${CHROME_BIN}" ]; then
+    echo "[info] No Chrome/Chromium/Brave/Edge binary found — load the extension manually:"
+    echo "  chrome://extensions -> enable Developer mode -> Load unpacked -> '${EXTENSION_DIR}'"
+  elif [ ! -t 0 ]; then
+    echo "[info] Non-interactive shell — skipping Chrome auto-load."
+    echo "  Run ./setup.sh in a terminal to be offered it, or load it manually:"
+    echo "  chrome://extensions -> enable Developer mode -> Load unpacked -> '${EXTENSION_DIR}'"
+  else
+    echo "Found browser: ${CHROME_BIN}"
+    echo "Auto-loading the extension needs to quit and relaunch it (--load-extension"
+    echo "only takes effect on a fresh launch) — any open tabs/windows will close and"
+    echo "reopen if the browser is set to restore its session."
+    read -r -p "Quit and relaunch it now to load Ghost Writer automatically? [y/N] " reply
+    case "${reply}" in
+      [yY]*)
+        case "$(uname -s)" in
+          Darwin)
+            osascript -e "tell application \"$(basename "${CHROME_BIN}")\" to quit" 2>/dev/null || true
+            wait_for_exit "$(basename "${CHROME_BIN}")"
+            ;;
+          Linux)
+            pkill -TERM -f "${CHROME_BIN}" 2>/dev/null || true
+            wait_for_exit "${CHROME_BIN}"
+            ;;
+        esac
+        echo "[..] relaunching with the extension loaded"
+        nohup "${CHROME_BIN}" --load-extension="${EXTENSION_DIR}" >/dev/null 2>&1 &
+        disown || true
+        echo "[ok] Chrome relaunched with Ghost Writer loaded (id: ${EXTENSION_ID})"
+        ;;
+      *)
+        echo "[info] Skipped. Load it manually whenever you like:"
+        echo "  chrome://extensions -> enable Developer mode -> Load unpacked -> '${EXTENSION_DIR}'"
+        ;;
+    esac
+  fi
 else
-  echo "Next steps:"
-  echo "  1. chrome://extensions -> enable Developer mode -> Load unpacked -> select 'extension/'"
-  echo "  2. Copy the extension ID Chrome shows, then run:"
-  echo "       ./setup.sh <extension-id>"
-  echo "     (or directly: ./native-host/install.sh <extension-id>)"
+  echo "[info] --no-chrome passed — skipping Chrome auto-load. Load it manually:"
+  echo "  chrome://extensions -> enable Developer mode -> Load unpacked -> '${EXTENSION_DIR}'"
 fi
 
 echo ""

@@ -36,17 +36,17 @@ By default, generation runs through the local `agy` CLI (the Antigravity CLI —
    ```
    ./setup.sh
    ```
-   This creates `.venv`, installs the pinned Python dependencies from `server/requirements.txt`, scaffolds `docs/RULES.MD`/`docs/MEMORY.MD` from the examples if they don't exist yet, creates the `workspace/` folders, and tells you whether `agy`/`claude`/`sops` are available. It's safe to re-run any time — e.g. after unzipping this repo onto a new machine, it rebuilds `.venv` automatically if it detects one built for a different OS.
+   This does everything else for you:
+   - creates `.venv` and installs the pinned Python dependencies from `server/requirements.txt` (rebuilding `.venv` automatically if it detects one built for a different OS/machine — e.g. after unzipping this repo onto a new box)
+   - scaffolds `docs/RULES.MD`/`docs/MEMORY.MD` from the examples if they don't exist yet, and creates the `workspace/` folders
+   - tells you whether `agy`/`claude`/`sops` are available
+   - **derives the extension ID itself** — `extension/manifest.json` pins a fixed key, so Chrome's ID for it is deterministic (`djollbmehcmhelbfnhhogookmleldfmc` unless you've regenerated the key) and `setup.sh` computes it the same way Chrome does, no copy-pasting from `chrome://extensions` needed
+   - installs `native-host/host.py` into every Chromium-family browser it finds (Chrome, Chromium, Brave, Edge) so it can auto-launch the local server
+   - offers to quit and relaunch your browser with `--load-extension` so Ghost Writer is loaded automatically — no manual "Load unpacked" click required. Since your extension ID is fixed, this also means Developer Mode + the loaded extension persist across relaunches once it's in there. Say no (or pass `--no-chrome`) to load it by hand instead, or run it later.
 
-5. **Load the extension.** In Chrome, go to `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select the `extension/` folder. Note the **ID** Chrome shows for it (the extension pins a fixed key in `manifest.json`, so this ID is deterministic and won't change on reload or across machines — expect `djollbmehcmhelbfnhhogookmleldfmc` unless you've regenerated the key).
+   On Windows, use `native-host/install.ps1 <extension-id>` for the native host instead (best-effort — macOS/Linux are the primary targets), and load the extension manually via `chrome://extensions` → Developer mode → Load unpacked → `extension/`.
 
-6. **Install the native messaging host, once per machine:**
-   ```
-   ./setup.sh <extension-id-from-step-5>
-   ```
-   (or directly: `./native-host/install.sh <extension-id>`). This registers `native-host/host.py` with every Chromium-family browser it finds installed (Chrome, Chromium, Brave, Edge) on macOS or Linux, so it can auto-launch the local server. On Windows, use `native-host/install.ps1 <extension-id>` instead (best-effort — macOS/Linux are the primary targets).
-
-7. **Use it.** Click the Ghost Writer toolbar icon to open the side panel on any page. Pick **Product Review** (on an Amazon product page) or **General Writer** (any page), fill in the notes/prompt, and click Generate. The first click of the session may take a couple seconds while the native host spins the server up — after that it's instant. If you leave the panel idle for 5+ minutes, the server exits on its own; the next click starts it again transparently.
+5. **Use it.** Click the Ghost Writer toolbar icon to open the side panel on any page. Pick **Product Review** (on an Amazon product page) or **General Writer** (any page), fill in the notes/prompt, and click Generate. The first click of the session may take a couple seconds while the native host spins the server up — after that it's instant. If you leave the panel idle for 5+ minutes, the server exits on its own; the next click starts it again transparently.
 
 Requires: Python 3, and either the `agy` CLI on your `PATH` or an API key / local model endpoint configured in Settings.
 
@@ -64,9 +64,9 @@ On the target machine:
 ```
 unzip Ghostwriter.zip
 cd Ghostwriter
-./setup.sh                   # rebuilds .venv for that machine's OS/arch
-./setup.sh <extension-id>    # after loading the extension there, installs the native host
+./setup.sh
 ```
+That single run rebuilds `.venv` for the new machine, installs the native host, and offers to load the extension into Chrome automatically (see step 4 above) — no extension ID to copy, since it's derived from the same pinned key either way.
 
 `config/secrets.enc.yaml` travels with the zip (it's sops-encrypted, safe to send), but it only decrypts on a machine that also has your age key at `~/.config/sops/age/keys.txt` (or `SOPS_AGE_KEY_FILE`) — copy that separately if you want the OpenRouter/Groq defaults to work there too. It's optional either way: without it, just fill in Settings by hand.
 
@@ -191,7 +191,7 @@ The extension talks to the local server over `http://localhost:8000`, whose CORS
 Ghost Writer uses the Antigravity (`agy`) CLI as its default/fallback. Either install it and put it on your shell `PATH`, or configure OpenRouter/Groq/a local model in Settings instead.
 
 **Side panel shows "Make sure the background server is running!"**
-The native messaging host couldn't start the server. Check `chrome://extensions` → "Inspect views: service worker" under Ghost Writer for errors from `background.js`, and confirm you ran `native-host/install.sh <extension-id>` with the ID Chrome actually shows for the loaded extension. As a fallback, run `./start_server.command` manually and try again.
+The native messaging host couldn't start the server. Check `chrome://extensions` → "Inspect views: service worker" under Ghost Writer for errors from `background.js`, and confirm you ran `./setup.sh` (or `native-host/install.sh <extension-id>` directly) with the same ID Chrome actually shows for the loaded extension — it should match `djollbmehcmhelbfnhhogookmleldfmc` unless you've regenerated the key in `manifest.json`. As a fallback, run `./start_server.command` manually and try again.
 
 **Side panel doesn't open when clicking the toolbar icon**
 Go to `chrome://extensions`, click "Inspect views: service worker" under Ghost Writer to check `background.js` for errors.
@@ -214,9 +214,9 @@ Make sure the local server is reachable (open the side panel once to trigger the
 
 | Task | Action |
 |------|--------|
-| Set up dependencies (once per machine) | `./setup.sh` |
-| Load/reload the extension | `chrome://extensions` → Load unpacked → `extension/` |
-| Install the native host (once per machine) | `./setup.sh <extension-id>` or `./native-host/install.sh <extension-id>` |
+| Full setup (deps, native host, load into Chrome) | `./setup.sh` |
+| Reload the extension by hand instead | `chrome://extensions` → Load unpacked → `extension/` |
+| Skip the Chrome auto-load step | `./setup.sh --no-chrome` |
 | Move this setup to another machine | `./package.sh`, then unzip + `./setup.sh` there |
 | Set up your rules/memory | `cp docs/RULES.MD.example docs/RULES.MD` (same for MEMORY.MD), then edit — `setup.sh` does this for you if missing |
 | Add writing samples | Settings → Writing Samples, or drop files into `workspace/sample/<category>/` |
