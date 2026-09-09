@@ -97,15 +97,15 @@ def generate_review(request: GenerateReviewRequest):
 
     context_block = gw.build_context(rules_text, memory_text)
 
-    if gw.provider_configured(request.provider, request.api_key, request.model, request.endpoint):
+    api_key, model, endpoint = gw.resolve_credentials(request.provider, request.api_key, request.model, request.endpoint)
+
+    if gw.provider_configured(request.provider, api_key, model, endpoint):
         samples_text = gw.read_samples("review")
     else:
         samples_text = f"(read the writing sample files in {gw.SAMPLE_DIR})"
 
     provider_warning = None
-    if gw.is_external_provider(request.provider) and not gw.provider_configured(
-        request.provider, request.api_key, request.model, request.endpoint
-    ):
+    if gw.is_external_provider(request.provider) and not gw.provider_configured(request.provider, api_key, model, endpoint):
         if request.provider == "local":
             provider_warning = "local model selected but endpoint/model not configured — used agy instead."
         else:
@@ -121,20 +121,23 @@ def generate_review(request: GenerateReviewRequest):
         samples_text,
     )
 
-    review_text = gw.generate_review_text(prompt, request.provider, request.api_key, request.model, request.endpoint)
-    if review_text == "":
-        raise HTTPException(status_code=502, detail="No output from agy")
+    try:
+        review_text = gw.generate_review_text(prompt, request.provider, api_key, model, endpoint)
+        if review_text == "":
+            raise HTTPException(status_code=502, detail="No output from agy")
 
-    score = gw.ai_score(review_text, request.provider, request.api_key, request.model, request.endpoint)
+        score = gw.ai_score(review_text, request.provider, api_key, model, endpoint)
 
-    attempts = 0
-    while score >= gw.AI_SCORE_TARGET and attempts < gw.MAX_REFINE_ATTEMPTS:
-        review_text = gw.generate_review_text(
-            gw.build_refine_prompt(review_text, score, context_block),
-            request.provider, request.api_key, request.model, request.endpoint,
-        )
-        score = gw.ai_score(review_text, request.provider, request.api_key, request.model, request.endpoint)
-        attempts += 1
+        attempts = 0
+        while score >= gw.AI_SCORE_TARGET and attempts < gw.MAX_REFINE_ATTEMPTS:
+            review_text = gw.generate_review_text(
+                gw.build_refine_prompt(review_text, score, context_block),
+                request.provider, api_key, model, endpoint,
+            )
+            score = gw.ai_score(review_text, request.provider, api_key, model, endpoint)
+            attempts += 1
+    except gw.ProviderCallError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
     out_path = gw.unique_review_path(request.product_title)
     with open(out_path, "w", encoding="utf-8") as f:
@@ -150,15 +153,15 @@ def generate_writing(request: GenerateWritingRequest):
 
     context_block = gw.build_context(rules_text, memory_text)
 
-    if gw.provider_configured(request.provider, request.api_key, request.model, request.endpoint):
+    api_key, model, endpoint = gw.resolve_credentials(request.provider, request.api_key, request.model, request.endpoint)
+
+    if gw.provider_configured(request.provider, api_key, model, endpoint):
         samples_text = gw.read_samples(request.category)
     else:
         samples_text = f"(read the writing sample files in {gw.SAMPLE_DIR})"
 
     provider_warning = None
-    if gw.is_external_provider(request.provider) and not gw.provider_configured(
-        request.provider, request.api_key, request.model, request.endpoint
-    ):
+    if gw.is_external_provider(request.provider) and not gw.provider_configured(request.provider, api_key, model, endpoint):
         if request.provider == "local":
             provider_warning = "local model selected but endpoint/model not configured — used agy instead."
         else:
@@ -175,20 +178,23 @@ def generate_writing(request: GenerateWritingRequest):
         samples_text,
     )
 
-    writing_text = gw.generate_review_text(prompt, request.provider, request.api_key, request.model, request.endpoint)
-    if writing_text == "":
-        raise HTTPException(status_code=502, detail="No output from agy")
+    try:
+        writing_text = gw.generate_review_text(prompt, request.provider, api_key, model, endpoint)
+        if writing_text == "":
+            raise HTTPException(status_code=502, detail="No output from agy")
 
-    score = gw.ai_score(writing_text, request.provider, request.api_key, request.model, request.endpoint)
+        score = gw.ai_score(writing_text, request.provider, api_key, model, endpoint)
 
-    attempts = 0
-    while score >= gw.AI_SCORE_TARGET and attempts < gw.MAX_REFINE_ATTEMPTS:
-        writing_text = gw.generate_review_text(
-            gw.build_refine_prompt(writing_text, score, context_block),
-            request.provider, request.api_key, request.model, request.endpoint,
-        )
-        score = gw.ai_score(writing_text, request.provider, request.api_key, request.model, request.endpoint)
-        attempts += 1
+        attempts = 0
+        while score >= gw.AI_SCORE_TARGET and attempts < gw.MAX_REFINE_ATTEMPTS:
+            writing_text = gw.generate_review_text(
+                gw.build_refine_prompt(writing_text, score, context_block),
+                request.provider, api_key, model, endpoint,
+            )
+            score = gw.ai_score(writing_text, request.provider, api_key, model, endpoint)
+            attempts += 1
+    except gw.ProviderCallError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
     slug = request.user_prompt if request.user_prompt else request.page_title
     out_path = gw.unique_writing_path(slug)
@@ -228,6 +234,17 @@ def delete_sample_endpoint(request: SampleDeleteRequest):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/provider-defaults")
+def provider_defaults():
+    """Tells the extension's quick-switcher which external providers have a
+    usable default from config/secrets.enc.yaml, without ever exposing the
+    actual key/model values."""
+    return {
+        "openrouter": bool(gw.SECRETS.get("openrouter_api_key")) and bool(gw.SECRETS.get("openrouter_model")),
+        "groq": bool(gw.SECRETS.get("groq_api_key")) and bool(gw.SECRETS.get("groq_model")),
+    }
 
 
 def _idle_watchdog():

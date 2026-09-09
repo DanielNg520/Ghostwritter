@@ -1,4 +1,5 @@
 const providerAgy = document.getElementById('provider-agy');
+const providerClaudeCode = document.getElementById('provider-claude-code');
 const providerOpenrouter = document.getElementById('provider-openrouter');
 const providerGroq = document.getElementById('provider-groq');
 const providerLocal = document.getElementById('provider-local');
@@ -16,7 +17,9 @@ chrome.storage.local.get('providerSettings').then((result) => {
   const settings = result.providerSettings;
   const activeProvider = settings?.activeProvider;
 
-  if (activeProvider === 'openrouter') {
+  if (activeProvider === 'claude_code') {
+    providerClaudeCode.checked = true;
+  } else if (activeProvider === 'openrouter') {
     providerOpenrouter.checked = true;
   } else if (activeProvider === 'groq') {
     providerGroq.checked = true;

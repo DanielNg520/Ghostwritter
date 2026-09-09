@@ -1,7 +1,10 @@
 import os
 import re
+import shutil
 import subprocess
 import requests
+
+import secrets_loader
 
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR      = os.path.dirname(SCRIPT_DIR)
@@ -18,6 +21,12 @@ MAX_REFINE_ATTEMPTS = 5
 AI_SCORE_TARGET     = 20
 SAMPLES_CHAR_LIMIT = 60000
 SAMPLE_CATEGORIES = ("formal", "casual", "academic", "creative", "narrative", "technical", "review")
+
+# Loaded once at import time (decrypts config/secrets.enc.yaml via sops) so
+# OpenRouter/Groq credentials have a default even when the extension's own
+# Settings page hasn't been filled in. {} if the file/sops/age key isn't
+# available — see resolve_credentials(), which treats that as "no default".
+SECRETS = secrets_loader.load_secrets()
 
 def is_valid_category(category):
     """Whitelist check — categories map directly to directory names on disk."""
@@ -63,13 +72,36 @@ def unique_writing_path(slug):
             return candidate
         index += 1
 
+# Chrome spawns native-messaging hosts (and, transitively, this managed
+# server) with a minimal PATH that doesn't include user-local install dirs
+# like ~/.local/bin — so a bare "agy" lookup that works fine from a normal
+# shell fails with FileNotFoundError when the server is launched via the
+# extension. Resolve the absolute path once, checking common user-local
+# install locations as a fallback when PATH lookup comes up empty.
+def _resolve_agy_path():
+    found = shutil.which("agy")
+    if found:
+        return found
+    for candidate in (
+        os.path.expanduser("~/.local/bin/agy"),
+        "/opt/homebrew/bin/agy",
+        "/usr/local/bin/agy",
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return "agy"  # let subprocess.run raise a clear FileNotFoundError
+
+
+AGY_PATH = _resolve_agy_path()
+
+
 def run_agy(prompt, model="gemini-3.7-flash", effort="high", timeout=300):
     """
     Call agy in print mode. Falls back to default model on recognition errors.
     Returns stripped stdout text.
     """
     cmd = [
-        "agy",
+        AGY_PATH,
         "--dangerously-skip-permissions",
         "--effort", effort,
         "--model", model,
@@ -82,7 +114,7 @@ def run_agy(prompt, model="gemini-3.7-flash", effort="high", timeout=300):
     if "is not recognized as a known model" in output or "invalid model selection" in output:
         print(f"  [warn] model '{model}' not recognized, falling back to default")
         fallback = [
-            "agy",
+            AGY_PATH,
             "--dangerously-skip-permissions",
             "--effort", effort,
             "-p", prompt,
@@ -91,6 +123,32 @@ def run_agy(prompt, model="gemini-3.7-flash", effort="high", timeout=300):
         output = result.stdout.strip()
 
     return output
+
+# Same Chrome-native-messaging PATH problem as agy above.
+def _resolve_claude_path():
+    found = shutil.which("claude")
+    if found:
+        return found
+    for candidate in (
+        os.path.expanduser("~/.local/bin/claude"),
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude",
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return "claude"  # let subprocess.run raise a clear FileNotFoundError
+
+
+CLAUDE_PATH = _resolve_claude_path()
+
+
+def run_claude_code(prompt, timeout=300):
+    """Call the local Claude Code CLI in headless print mode. Returns
+    stripped stdout text. Local CLI, no API key needed — same shape as
+    run_agy()."""
+    cmd = [CLAUDE_PATH, "--dangerously-skip-permissions", "--print", "-p", prompt]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return result.stdout.strip()
 
 def call_openrouter(prompt, api_key, model, timeout=300):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -160,8 +218,28 @@ def provider_configured(provider, api_key, model, endpoint=""):
         return bool(endpoint) and bool(model)
     return False
 
+def resolve_credentials(provider, api_key, model, endpoint=""):
+    """Fill in api_key/model from the sops-decrypted secrets file (SECRETS)
+    when the extension's own Settings page left them blank — an explicit
+    value from the extension always wins. agy/claude_code need no
+    credentials and pass through unchanged."""
+    if provider == "openrouter":
+        api_key = api_key or SECRETS.get("openrouter_api_key", "")
+        model = model or SECRETS.get("openrouter_model", "")
+    elif provider == "groq":
+        api_key = api_key or SECRETS.get("groq_api_key", "")
+        model = model or SECRETS.get("groq_model", "")
+    return api_key, model, endpoint
+
+class ProviderCallError(Exception):
+    """Raised when a configured external provider's API call itself fails
+    (auth error, network error, bad response) — this does NOT fall back to
+    agy silently; the caller (server.py) surfaces it as a real error."""
+
 def generate_review_text(prompt, provider, api_key, model, endpoint=""):
-    if provider_configured(provider, api_key, model, endpoint):
+    if provider == "claude_code":
+        return run_claude_code(prompt)
+    if provider in ("openrouter", "groq", "local") and provider_configured(provider, api_key, model, endpoint):
         try:
             if provider == "openrouter":
                 return call_openrouter(prompt, api_key, model)
@@ -169,7 +247,10 @@ def generate_review_text(prompt, provider, api_key, model, endpoint=""):
                 return call_groq(prompt, api_key, model)
             return call_local(prompt, endpoint, model, api_key)
         except Exception as exc:
-            print(f"  [warn] {provider} call failed ({exc}), falling back to agy")
+            raise ProviderCallError(f"{provider} call failed: {exc}") from exc
+    # agy (the default), or an external provider left unconfigured — the
+    # unconfigured case is surfaced separately as a provider_warning by the
+    # caller, with agy as the documented fallback.
     return run_agy(prompt)
 
 def ai_score(text, provider="agy", api_key="", model="", endpoint=""):
@@ -183,7 +264,9 @@ def ai_score(text, provider="agy", api_key="", model="", endpoint=""):
         "No explanation.\n\nText:\n" + text
     )
     try:
-        if provider_configured(provider, api_key, model, endpoint):
+        if provider == "claude_code":
+            response = run_claude_code(prompt)
+        elif provider_configured(provider, api_key, model, endpoint):
             if provider == "openrouter":
                 response = call_openrouter(prompt, api_key, model)
             elif provider == "groq":

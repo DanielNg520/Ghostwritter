@@ -13,11 +13,16 @@
 
   <section class="settings-section">
     <h2 class="section-title">Provider</h2>
-    <p>Choose which AI generates your reviews. If the selected API fails, Ghost Writer automatically falls back to the local agy CLI.</p>
+    <p>Choose which AI generates your reviews. If OpenRouter/Groq is left blank here, Ghost Writer uses the server's saved default for it if one exists; if a provider isn't configured at all, generation falls back to Agy. If a configured provider's API call itself fails, that error is shown directly — it no longer retries silently through Agy.</p>
 
     <div class="provider-row">
       <input type="radio" name="provider" value="agy" id="provider-agy">
-      <label for="provider-agy">Agy only (local CLI, no API key needed)</label>
+      <label for="provider-agy">Agy (local CLI, no API key needed)</label>
+    </div>
+
+    <div class="provider-row">
+      <input type="radio" name="provider" value="claude_code" id="provider-claude-code">
+      <label for="provider-claude-code">Claude Code (local CLI, no API key needed)</label>
     </div>
 
     <div class="provider-row">

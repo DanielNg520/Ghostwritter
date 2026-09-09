@@ -16,6 +16,17 @@
     <button id="mode-general-btn" class="mode-btn" type="button">General Writer</button>
   </div>
 
+  <div id="provider-row">
+    <label for="provider-select">Generate with</label>
+    <select id="provider-select">
+      <option value="agy">Agy (local CLI)</option>
+      <option value="claude_code">Claude Code (local CLI)</option>
+      <option value="openrouter">OpenRouter</option>
+      <option value="groq">Groq</option>
+      <option value="local">Local model</option>
+    </select>
+  </div>
+
   <div id="review-section">
     <label for="comment">Notes</label>
     <textarea id="comment" placeholder="Notes about this product (optional)..."></textarea>

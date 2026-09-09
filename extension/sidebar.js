@@ -20,6 +20,62 @@ const reviewSection = document.getElementById("review-section");
 const generalSection = document.getElementById("general-section");
 const categorySelect = document.getElementById("category-select");
 const promptInput = document.getElementById("prompt");
+const providerSelect = document.getElementById("provider-select");
+
+// agy/claude_code are local CLIs, always usable. openrouter/groq/local need
+// credentials — either saved in this extension's Settings page, or (for
+// openrouter/groq only) a default from the server's encrypted secrets file.
+// Populates the quick-switcher with only what's actually usable right now,
+// so picking an option never silently falls back to something else.
+async function initProviderSelect() {
+  const { providerSettings, serverProviderDefaults } = await chrome.storage.local.get([
+    "providerSettings",
+    "serverProviderDefaults",
+  ]);
+
+  // The server is usually still cold-starting (native-messaging warm-up is
+  // async) right when this runs on panel open, so a failed fetch here does
+  // NOT mean openrouter/groq are actually unconfigured — fall back to the
+  // last known-good result instead of guessing false, or a real credential
+  // would flicker "not set up" and get silently swapped back to agy on
+  // almost every panel open.
+  let serverDefaults = serverProviderDefaults ?? { openrouter: false, groq: false };
+  try {
+    const res = await fetch("http://localhost:8000/provider-defaults");
+    if (res.ok) {
+      serverDefaults = await res.json();
+      chrome.storage.local.set({ serverProviderDefaults: serverDefaults });
+    }
+  } catch {
+    // Server unreachable right now — use the cached result from last time.
+  }
+
+  const available = {
+    agy: true,
+    claude_code: true,
+    openrouter: !!(providerSettings?.openrouter?.apiKey && providerSettings?.openrouter?.model) || !!serverDefaults.openrouter,
+    groq: !!(providerSettings?.groq?.apiKey && providerSettings?.groq?.model) || !!serverDefaults.groq,
+    local: !!(providerSettings?.local?.endpoint && providerSettings?.local?.model),
+  };
+
+  for (const option of providerSelect.options) {
+    const isAvailable = available[option.value] ?? false;
+    option.disabled = !isAvailable;
+    option.textContent = option.textContent.replace(/ — not set up$/, "") + (isAvailable ? "" : " — not set up");
+  }
+
+  const saved = providerSettings?.activeProvider;
+  providerSelect.value = available[saved] ? saved : "agy";
+}
+
+providerSelect.addEventListener("change", async () => {
+  const { providerSettings } = await chrome.storage.local.get("providerSettings");
+  await chrome.storage.local.set({
+    providerSettings: { ...providerSettings, activeProvider: providerSelect.value },
+  });
+});
+
+initProviderSelect();
 
 let currentMode = "review"; // "review" | "general"
 
@@ -43,10 +99,14 @@ settingsBtn.addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
 
-// Shared provider/api-key/model/endpoint lookup used by both modes.
+// Shared provider/api-key/model/endpoint lookup used by both modes. The
+// quick-switcher (#provider-select) is the source of truth for *which*
+// provider to use — it's kept in sync with chrome.storage on every change
+// (see initProviderSelect() above), but reading it directly here means a
+// mid-session switch takes effect on the very next click with no reload.
 async function getProviderSettings() {
   const { providerSettings } = await chrome.storage.local.get("providerSettings");
-  const provider = providerSettings?.activeProvider ?? "agy";
+  const provider = providerSelect.value || providerSettings?.activeProvider || "agy";
   const apiKey =
     provider === "openrouter" ? providerSettings?.openrouter?.apiKey ?? "" :
     provider === "groq" ? providerSettings?.groq?.apiKey ?? "" :
