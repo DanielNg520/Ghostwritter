@@ -48,7 +48,11 @@
   </div>
 
   <button id="generate-btn">Generate Review</button>
-  <div id="loading" hidden><span class="spinner" aria-hidden="true"></span><span class="loading-text">Generating&hellip;</span></div>
+  <div id="loading" hidden>
+    <div id="progress-track"><div id="progress-fill"></div></div>
+    <span class="loading-text">Generating&hellip;</span>
+    <span id="progress-eta"></span>
+  </div>
   <textarea id="output" readonly placeholder="Generated review will appear here..."></textarea>
   <div id="status-message"></div>
   <script src="generic_scrape.js"></script>
