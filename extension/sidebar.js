@@ -16,74 +16,52 @@ const settingsBtn = document.getElementById("settings-btn");
 const progressFill = document.getElementById("progress-fill");
 const progressEta = document.getElementById("progress-eta");
 
-// No streaming endpoint exists server-side, so there's no real completion
-// percentage to report. Instead we keep a rolling history of how long past
-// generations actually took (per mode, since review/general have different
-// prompt shapes) and animate the bar against that estimate, capped short of
-// 100% until the response actually lands. Falls back to a generic default
-// estimate until enough history exists.
-const DEFAULT_ESTIMATE_MS = 12000;
-const HISTORY_LIMIT = 8;
+// The server runs generation as a background job (POST .../start returns a
+// job_id) and reports its actual pipeline stage on each poll, so the bar
+// reflects real state — never a time-based guess. Stage order matches
+// server.py's _run_review_job/_run_writing_job: an initial "writing" call,
+// then "scoring" (ai_score), then — only if the score's still too AI-sounding
+// — "rewriting" and back to "scoring" again, up to max_attempts times.
+const STAGE_LABELS = {
+  writing: "Writing",
+  scoring: "Checking AI score",
+  rewriting: "Rewriting",
+};
+const STAGE_FILL_PCT = { writing: 15, scoring: 50, rewriting: 80 };
+const POLL_INTERVAL_MS = 500;
 
-async function getDurationEstimate(mode) {
-  const { genDurations } = await chrome.storage.local.get("genDurations");
-  const history = genDurations?.[mode];
-  if (!history || history.length === 0) return DEFAULT_ESTIMATE_MS;
-  return history.reduce((sum, ms) => sum + ms, 0) / history.length;
+function renderStage(stage, attempt, maxAttempts) {
+  progressFill.style.width = `${STAGE_FILL_PCT[stage] ?? 15}%`;
+  const label = STAGE_LABELS[stage] ?? stage;
+  progressEta.textContent = attempt > 0 ? `${label} (attempt ${attempt}/${maxAttempts})…` : `${label}…`;
 }
 
-async function recordDuration(mode, durationMs) {
-  const { genDurations } = await chrome.storage.local.get("genDurations");
-  const history = genDurations?.[mode] ?? [];
-  history.push(durationMs);
-  if (history.length > HISTORY_LIMIT) history.shift();
-  await chrome.storage.local.set({
-    genDurations: { ...genDurations, [mode]: history },
-  });
-}
-
-let progressTimer = null;
-
-async function startProgress(mode) {
-  const estimateMs = await getDurationEstimate(mode);
-  const startTime = Date.now();
+function resetProgress() {
   progressFill.style.width = "0%";
   progressEta.textContent = "";
-
-  progressTimer = setInterval(() => {
-    const elapsed = Date.now() - startTime;
-
-    if (elapsed < estimateMs) {
-      // On pace: fill toward 90% by the estimated finish time, with a real
-      // countdown — this part of the estimate is trustworthy.
-      progressFill.style.width = `${(elapsed / estimateMs) * 90}%`;
-      progressEta.textContent = `~${Math.round((estimateMs - elapsed) / 1000)}s left`;
-      return;
-    }
-
-    // Past the estimate: review mode's refine loop can legitimately chain
-    // several more slow agy calls, so there's no real ETA left to show.
-    // Creep the bar asymptotically toward 99% instead of claiming "almost
-    // done" — a flat, honest "still working" beats a false countdown that
-    // makes a slow-but-healthy request look hung.
-    const overrun = elapsed - estimateMs;
-    progressFill.style.width = `${99 - 9 * Math.exp(-overrun / 20000)}%`;
-    const elapsedSec = Math.round(elapsed / 1000);
-    progressEta.textContent = `still working… (${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s)`;
-  }, 150);
-
-  return startTime;
 }
 
-function stopProgress(startTime, mode, succeeded) {
-  clearInterval(progressTimer);
-  progressTimer = null;
-  progressEta.textContent = "";
-  if (succeeded) {
-    progressFill.style.width = "100%";
-    recordDuration(mode, Date.now() - startTime);
-  } else {
-    progressFill.style.width = "0%";
+// Starts the job, polls its real progress until the server reports it done,
+// and returns the final result payload (or throws, same as a plain fetch).
+async function runJob(kind, payload) {
+  const startRes = await fetch(`http://localhost:8000/generate-${kind}/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!startRes.ok) throw new Error(await extractErrorDetail(startRes));
+  const { job_id } = await startRes.json();
+
+  while (true) {
+    const res = await fetch(`http://localhost:8000/generate-${kind}/progress/${job_id}`);
+    if (!res.ok) throw new Error(await extractErrorDetail(res));
+    const data = await res.json();
+    if (data.done) {
+      progressFill.style.width = "100%";
+      return data;
+    }
+    renderStage(data.stage, data.attempt, data.max_attempts);
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 }
 
@@ -203,23 +181,16 @@ async function generateReview() {
   const comment = commentInput.value;
   const { provider, apiKey, model, endpoint } = await getProviderSettings();
 
-  const response = await fetch("http://localhost:8000/generate-review", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      product_title: title,
-      product_details: details,
-      user_comment: comment,
-      provider,
-      api_key: apiKey,
-      model,
-      endpoint,
-    }),
+  const data = await runJob("review", {
+    product_title: title,
+    product_details: details,
+    user_comment: comment,
+    provider,
+    api_key: apiKey,
+    model,
+    endpoint,
   });
 
-  if (!response.ok) throw new Error(await extractErrorDetail(response));
-
-  const data = await response.json();
   output.value = data.review;
   if (data.provider_warning) {
     statusMessage.textContent = data.provider_warning;
@@ -238,24 +209,17 @@ async function generateWriting() {
   const category = categorySelect.value;
   const { provider, apiKey, model, endpoint } = await getProviderSettings();
 
-  const response = await fetch("http://localhost:8000/generate-writing", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      page_title: title,
-      page_text: text,
-      user_prompt: prompt,
-      category,
-      provider,
-      api_key: apiKey,
-      model,
-      endpoint,
-    }),
+  const data = await runJob("writing", {
+    page_title: title,
+    page_text: text,
+    user_prompt: prompt,
+    category,
+    provider,
+    api_key: apiKey,
+    model,
+    endpoint,
   });
 
-  if (!response.ok) throw new Error(await extractErrorDetail(response));
-
-  const data = await response.json();
   output.value = data.writing;
   if (data.provider_warning) {
     statusMessage.textContent = data.provider_warning;
@@ -278,7 +242,7 @@ generateBtn.addEventListener("click", async () => {
   statusMessage.textContent = "";
   generateBtn.disabled = true;
   loading.hidden = false;
-  const startTime = await startProgress(currentMode);
+  resetProgress();
 
   try {
     if (currentMode === "review") {
@@ -286,9 +250,8 @@ generateBtn.addEventListener("click", async () => {
     } else {
       await generateWriting();
     }
-    stopProgress(startTime, currentMode, true);
   } catch (err) {
-    stopProgress(startTime, currentMode, false);
+    resetProgress();
     // A fetch()-level network failure (server unreachable) throws a bare
     // TypeError with no useful message; every other failure — a non-ok HTTP
     // response, or chrome.tabs.sendMessage rejecting when not on an Amazon

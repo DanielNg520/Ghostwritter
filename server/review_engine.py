@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -95,34 +96,50 @@ def _resolve_agy_path():
 AGY_PATH = _resolve_agy_path()
 
 
+def _parse_agy_json(stdout):
+    """agy --output-format json always prints exactly one JSON object to
+    stdout (even on error), keeping any tool-call/background-task chatter
+    it produces while agentically working out of the captured text —
+    unlike plain text mode, which interleaves that chatter with the actual
+    answer. Returns None if stdout wasn't parseable JSON (unexpected agy
+    version/output), so the caller can fall back to raw text."""
+    try:
+        return json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
 def run_agy(prompt, model="gemini-3.7-flash", effort="high", timeout=300):
     """
     Call agy in print mode. Falls back to default model on recognition errors.
-    Returns stripped stdout text.
+    Returns just the final answer text, not agy's own tool-call/task chatter.
     """
     cmd = [
         AGY_PATH,
         "--dangerously-skip-permissions",
         "--effort", effort,
         "--model", model,
+        "--output-format", "json",
         "-p", prompt,
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    output = result.stdout.strip()
+    data = _parse_agy_json(result.stdout)
+    error_text = (data or {}).get("error", "") + (data or {}).get("response", "")
 
-    # agy writes model-not-found errors to stdout with exit 0
-    if "is not recognized as a known model" in output or "invalid model selection" in output:
+    if data is None or "is not recognized as a known model" in error_text or "invalid model selection" in error_text:
         print(f"  [warn] model '{model}' not recognized, falling back to default")
         fallback = [
             AGY_PATH,
             "--dangerously-skip-permissions",
             "--effort", effort,
+            "--output-format", "json",
             "-p", prompt,
         ]
         result = subprocess.run(fallback, capture_output=True, text=True, timeout=timeout)
-        output = result.stdout.strip()
+        data = _parse_agy_json(result.stdout)
 
-    return output
+    if data is None:
+        return result.stdout.strip()
+    return data.get("response", "").strip()
 
 # Same Chrome-native-messaging PATH problem as agy above.
 def _resolve_claude_path():
@@ -143,12 +160,16 @@ CLAUDE_PATH = _resolve_claude_path()
 
 
 def run_claude_code(prompt, timeout=300):
-    """Call the local Claude Code CLI in headless print mode. Returns
-    stripped stdout text. Local CLI, no API key needed — same shape as
-    run_agy()."""
-    cmd = [CLAUDE_PATH, "--dangerously-skip-permissions", "--print", "-p", prompt]
+    """Call the local Claude Code CLI in headless print mode. Returns just
+    the final answer text (not any tool-call chatter along the way) — same
+    shape as run_agy()."""
+    cmd = [CLAUDE_PATH, "--dangerously-skip-permissions", "--print", "--output-format", "json", "-p", prompt]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    return result.stdout.strip()
+    try:
+        data = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return result.stdout.strip()
+    return str(data.get("result", "")).strip()
 
 def call_openrouter(prompt, api_key, model, timeout=300):
     url = "https://openrouter.ai/api/v1/chat/completions"

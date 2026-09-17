@@ -2,6 +2,7 @@ import argparse
 import os
 import threading
 import time
+import uuid
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -9,6 +10,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import review_engine as gw
+
+# Generation jobs run in a background thread and report real pipeline stage
+# transitions here ("writing" / "scoring" / "rewriting") so the extension
+# can poll for genuine progress instead of guessing from elapsed time. Job
+# state is popped out of this dict the moment it's returned to the client
+# as done — this is a single-user local dev tool, so there's no need to
+# keep finished jobs around for a second reader.
+jobs = {}
+jobs_lock = threading.Lock()
 
 # Phase 2: idle self-shutdown. `last_activity` is updated when an HTTP
 # request finishes (not when it starts — see `active_requests` below).
@@ -90,118 +100,192 @@ async def track_activity(request, call_next):
         last_activity = time.time()
 
 
-@app.post("/generate-review")
-def generate_review(request: GenerateReviewRequest):
-    rules_text = gw.read_file(os.path.join(gw.DOCS_DIR, "RULES.MD"))
-    memory_text = gw.read_file(os.path.join(gw.DOCS_DIR, "MEMORY.MD"))
+def _set_stage(job_id, stage, attempt=0):
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is not None:
+            job["stage"] = stage
+            job["attempt"] = attempt
 
-    context_block = gw.build_context(rules_text, memory_text)
 
-    api_key, model, endpoint = gw.resolve_credentials(request.provider, request.api_key, request.model, request.endpoint)
+def _finish_job(job_id, *, result=None, error=None, status_code=None):
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is not None:
+            job["done"] = True
+            job["result"] = result
+            job["error"] = error
+            job["status_code"] = status_code
 
-    if gw.provider_configured(request.provider, api_key, model, endpoint):
-        samples_text = gw.read_samples("review")
-    else:
-        samples_text = f"(read the writing sample files in {gw.SAMPLE_DIR})"
 
-    provider_warning = None
-    if gw.is_external_provider(request.provider) and not gw.provider_configured(request.provider, api_key, model, endpoint):
-        if request.provider == "local":
-            provider_warning = "local model selected but endpoint/model not configured — used agy instead."
-        else:
-            provider_warning = (
-                f"{request.provider} selected but API key/model not configured — used agy instead."
-            )
-
-    prompt = gw.build_text_prompt(
-        request.product_title,
-        request.product_details,
-        request.user_comment,
-        context_block,
-        samples_text,
-    )
-
+def _run_review_job(job_id, request: "GenerateReviewRequest"):
     try:
+        rules_text = gw.read_file(os.path.join(gw.DOCS_DIR, "RULES.MD"))
+        memory_text = gw.read_file(os.path.join(gw.DOCS_DIR, "MEMORY.MD"))
+        context_block = gw.build_context(rules_text, memory_text)
+
+        api_key, model, endpoint = gw.resolve_credentials(request.provider, request.api_key, request.model, request.endpoint)
+
+        if gw.provider_configured(request.provider, api_key, model, endpoint):
+            samples_text = gw.read_samples("review")
+        else:
+            samples_text = f"(read the writing sample files in {gw.SAMPLE_DIR})"
+
+        provider_warning = None
+        if gw.is_external_provider(request.provider) and not gw.provider_configured(request.provider, api_key, model, endpoint):
+            if request.provider == "local":
+                provider_warning = "local model selected but endpoint/model not configured — used agy instead."
+            else:
+                provider_warning = (
+                    f"{request.provider} selected but API key/model not configured — used agy instead."
+                )
+
+        prompt = gw.build_text_prompt(
+            request.product_title,
+            request.product_details,
+            request.user_comment,
+            context_block,
+            samples_text,
+        )
+
+        _set_stage(job_id, "writing")
         review_text = gw.generate_review_text(prompt, request.provider, api_key, model, endpoint)
         if review_text == "":
-            raise HTTPException(status_code=502, detail="No output from agy")
+            _finish_job(job_id, error="No output from agy", status_code=502)
+            return
 
+        _set_stage(job_id, "scoring")
         score = gw.ai_score(review_text, request.provider, api_key, model, endpoint)
 
         attempts = 0
         while score >= gw.AI_SCORE_TARGET and attempts < gw.MAX_REFINE_ATTEMPTS:
+            attempts += 1
+            _set_stage(job_id, "rewriting", attempts)
             review_text = gw.generate_review_text(
                 gw.build_refine_prompt(review_text, score, context_block),
                 request.provider, api_key, model, endpoint,
             )
+            _set_stage(job_id, "scoring", attempts)
             score = gw.ai_score(review_text, request.provider, api_key, model, endpoint)
-            attempts += 1
     except gw.ProviderCallError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        _finish_job(job_id, error=str(exc), status_code=502)
+        return
+    except Exception as exc:
+        _finish_job(job_id, error=str(exc), status_code=500)
+        return
 
     out_path = gw.unique_review_path(request.product_title)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(review_text)
 
-    return {"review": review_text, "ai_score": score, "provider_warning": provider_warning}
+    _finish_job(job_id, result={"review": review_text, "ai_score": score, "provider_warning": provider_warning})
 
 
-@app.post("/generate-writing")
-def generate_writing(request: GenerateWritingRequest):
-    rules_text = gw.read_file(os.path.join(gw.DOCS_DIR, "RULES.MD"))
-    memory_text = gw.read_file(os.path.join(gw.DOCS_DIR, "MEMORY.MD"))
+@app.post("/generate-review/start")
+def start_generate_review(request: GenerateReviewRequest):
+    job_id = str(uuid.uuid4())
+    with jobs_lock:
+        jobs[job_id] = {"stage": "writing", "attempt": 0, "done": False, "result": None, "error": None, "status_code": None}
+    threading.Thread(target=_run_review_job, args=(job_id, request), daemon=True).start()
+    return {"job_id": job_id}
 
-    context_block = gw.build_context(rules_text, memory_text)
 
-    api_key, model, endpoint = gw.resolve_credentials(request.provider, request.api_key, request.model, request.endpoint)
+@app.get("/generate-review/progress/{job_id}")
+def get_review_progress(job_id: str):
+    return _poll_job(job_id)
 
-    if gw.provider_configured(request.provider, api_key, model, endpoint):
-        samples_text = gw.read_samples(request.category)
-    else:
-        samples_text = f"(read the writing sample files in {gw.SAMPLE_DIR})"
 
-    provider_warning = None
-    if gw.is_external_provider(request.provider) and not gw.provider_configured(request.provider, api_key, model, endpoint):
-        if request.provider == "local":
-            provider_warning = "local model selected but endpoint/model not configured — used agy instead."
-        else:
-            provider_warning = (
-                f"{request.provider} selected but API key/model not configured — used agy instead."
-            )
+def _poll_job(job_id):
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown or already-consumed job id")
+        if job["done"]:
+            jobs.pop(job_id, None)
+    if job["done"]:
+        if job["error"] is not None:
+            raise HTTPException(status_code=job["status_code"] or 500, detail=job["error"])
+        return {"done": True, **job["result"]}
+    return {"done": False, "stage": job["stage"], "attempt": job["attempt"], "max_attempts": gw.MAX_REFINE_ATTEMPTS}
 
-    prompt = gw.build_generalist_prompt(
-        request.page_title,
-        request.page_text,
-        request.user_prompt,
-        request.category,
-        context_block,
-        samples_text,
-    )
 
+def _run_writing_job(job_id, request: "GenerateWritingRequest"):
     try:
+        rules_text = gw.read_file(os.path.join(gw.DOCS_DIR, "RULES.MD"))
+        memory_text = gw.read_file(os.path.join(gw.DOCS_DIR, "MEMORY.MD"))
+        context_block = gw.build_context(rules_text, memory_text)
+
+        api_key, model, endpoint = gw.resolve_credentials(request.provider, request.api_key, request.model, request.endpoint)
+
+        if gw.provider_configured(request.provider, api_key, model, endpoint):
+            samples_text = gw.read_samples(request.category)
+        else:
+            samples_text = f"(read the writing sample files in {gw.SAMPLE_DIR})"
+
+        provider_warning = None
+        if gw.is_external_provider(request.provider) and not gw.provider_configured(request.provider, api_key, model, endpoint):
+            if request.provider == "local":
+                provider_warning = "local model selected but endpoint/model not configured — used agy instead."
+            else:
+                provider_warning = (
+                    f"{request.provider} selected but API key/model not configured — used agy instead."
+                )
+
+        prompt = gw.build_generalist_prompt(
+            request.page_title,
+            request.page_text,
+            request.user_prompt,
+            request.category,
+            context_block,
+            samples_text,
+        )
+
+        _set_stage(job_id, "writing")
         writing_text = gw.generate_review_text(prompt, request.provider, api_key, model, endpoint)
         if writing_text == "":
-            raise HTTPException(status_code=502, detail="No output from agy")
+            _finish_job(job_id, error="No output from agy", status_code=502)
+            return
 
+        _set_stage(job_id, "scoring")
         score = gw.ai_score(writing_text, request.provider, api_key, model, endpoint)
 
         attempts = 0
         while score >= gw.AI_SCORE_TARGET and attempts < gw.MAX_REFINE_ATTEMPTS:
+            attempts += 1
+            _set_stage(job_id, "rewriting", attempts)
             writing_text = gw.generate_review_text(
                 gw.build_refine_prompt(writing_text, score, context_block),
                 request.provider, api_key, model, endpoint,
             )
+            _set_stage(job_id, "scoring", attempts)
             score = gw.ai_score(writing_text, request.provider, api_key, model, endpoint)
-            attempts += 1
     except gw.ProviderCallError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        _finish_job(job_id, error=str(exc), status_code=502)
+        return
+    except Exception as exc:
+        _finish_job(job_id, error=str(exc), status_code=500)
+        return
 
     slug = request.user_prompt if request.user_prompt else request.page_title
     out_path = gw.unique_writing_path(slug)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(writing_text)
 
-    return {"writing": writing_text, "ai_score": score, "provider_warning": provider_warning}
+    _finish_job(job_id, result={"writing": writing_text, "ai_score": score, "provider_warning": provider_warning})
+
+
+@app.post("/generate-writing/start")
+def start_generate_writing(request: GenerateWritingRequest):
+    job_id = str(uuid.uuid4())
+    with jobs_lock:
+        jobs[job_id] = {"stage": "writing", "attempt": 0, "done": False, "result": None, "error": None, "status_code": None}
+    threading.Thread(target=_run_writing_job, args=(job_id, request), daemon=True).start()
+    return {"job_id": job_id}
+
+
+@app.get("/generate-writing/progress/{job_id}")
+def get_writing_progress(job_id: str):
+    return _poll_job(job_id)
 
 
 @app.get("/samples")
