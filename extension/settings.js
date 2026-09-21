@@ -74,6 +74,7 @@ const SAMPLE_CATEGORIES = [
   'narrative',
   'technical',
   'review',
+  'cover_letter',
 ];
 
 const SAMPLES_API = 'http://localhost:8000/samples';
@@ -81,8 +82,13 @@ const SAMPLES_API = 'http://localhost:8000/samples';
 const samplesSection = document.getElementById('samples-section');
 const samplesStatus = document.getElementById('samples-status');
 
+// "cover_letter" -> "Cover Letter". All prior categories were single
+// words, so a plain capitalize() never had to handle the underscore case.
 function capitalize(word) {
-  return word.charAt(0).toUpperCase() + word.slice(1);
+  return word
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 // Build the static per-category panel markup once.

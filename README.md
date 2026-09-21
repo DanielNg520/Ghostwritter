@@ -3,7 +3,7 @@
 Ghost Writer is a Chrome extension that writes in your voice. Open it as a side panel on any page and it works in one of two modes:
 
 - **Product Review** — the original mode. On an Amazon product page, add optional notes and it generates a Vine-style review from the page's title/bullets — checked against an AI detector and rewritten until the score is under 20%.
-- **General Writer** — reads whatever page you have open, takes a free-text prompt ("write a thank-you email based on this," "summarize this into three bullet points," anything), and writes it in a voice you pick from a category (Formal, Casual, Academic, Creative, Narrative, Technical, or the same Review voice as the other mode) — run through the same AI-detection refine loop.
+- **General Writer** — reads whatever page you have open, takes a free-text prompt ("write a thank-you email based on this," "summarize this into three bullet points," anything), and writes it in a voice you pick from a category (Formal, Casual, Academic, Creative, Narrative, Technical, Cover Letter, or the same Review voice as the other mode) — run through the same AI-detection refine loop. On a job posting (a known job board, or any page whose text reads like a job description), it auto-detects this and switches to General Writer with the Cover Letter category preselected, so opening a job page and hitting Generate needs no manual setup.
 
 Both modes read the same rules, memory, and category-based writing samples, and save their output to disk.
 

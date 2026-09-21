@@ -69,8 +69,10 @@ Read this file first. Update it after every implementation change.
   are fine.
 - New style/voice categories: add to `SAMPLE_CATEGORIES` in
   `server/review_engine.py` + create `workspace/sample/<name>/.gitkeep` +
-  add an `<option>` in `sidebar.html`'s `#category-select`. That's the whole
-  extension point — no new backend logic needed.
+  add an `<option>` in `sidebar.html`'s `#category-select` + add the name to
+  `settings.js`'s own (separately hardcoded, not shared) `SAMPLE_CATEGORIES`
+  array so the sample-manager UI gets a panel. Four places, not three — the
+  `cover_letter` addition missed `settings.js` the first time.
 - External provider calls never silently fall back to agy on failure — they
   raise `ProviderCallError` so the UI surfaces the real error instead of
   masking a misconfigured API key.
@@ -91,6 +93,17 @@ Read this file first. Update it after every implementation change.
   native host. For direct debugging: `python server/server.py` from `server/`.
 
 ## Carryover
+
+- 2026-09-21 (done): audit found `settings.js` keeps its own hardcoded
+  `SAMPLE_CATEGORIES` array (separate from `review_engine.py`'s), missed
+  when `cover_letter` was added — the Settings sample-manager UI had no
+  panel to upload cover-letter samples at all. Fixed, plus a `capitalize()`
+  bug it exposed: it only uppercased the first letter, so `cover_letter`
+  rendered as "Cover_letter" (every prior category was one word). Verified
+  in Chrome: panel now reads "Cover Letter", no console errors. Also
+  updated `README.md` (Cover Letter category + auto-detect weren't
+  mentioned) and the Conventions section below (was missing this file as
+  a required edit point).
 
 - 2026-09-21 (done): tested the job-detection feature in Chrome via
   Playwright with the unpacked extension loaded headless (no Xvfb needed —
