@@ -94,6 +94,20 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
+- 2026-09-21 (done): code review of the any-host keyword-fallback fix
+  flagged that `findByKeywordScore` now walks and regex-scans every
+  `main/article/section/div` on *any* page (not just the 16
+  `JOB_SITE_HOSTS`), including huge SPAs (Gmail, Twitter/X) — and
+  `detectJobPageAndConfigure()` runs this on every side-panel open, on any
+  page. Fixed with a cheap single-pass gate: check `document.body
+  .textContent` against `JOB_KEYWORDS` once first, only do the expensive
+  per-element candidate scan if that already clears `minMatches`. Verified
+  no behavior change (same job/general results on all prior test pages)
+  and benchmarked on a synthetic 4000-level-deep page (worst case for
+  nested-`textContent` overlap): 13.9ms gated vs. 28.9ms ungated, and the
+  realistic case (zero job vocabulary on the page, e.g. an inbox) skips
+  the per-element scan entirely.
+
 - 2026-09-21 (done): audit found `settings.js` keeps its own hardcoded
   `SAMPLE_CATEGORIES` array (separate from `review_engine.py`'s), missed
   when `cover_letter` was added — the Settings sample-manager UI had no

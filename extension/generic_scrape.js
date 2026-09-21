@@ -64,6 +64,15 @@ function scrapePageContent() {
   // needed there than on a host we already know is a job board, since an
   // unrelated page can mention one of these terms once in passing.
   function findByKeywordScore(minMatches) {
+    // Cheap single-pass gate before the expensive part: this runs on any
+    // page now (not just JOB_SITE_HOSTS), including large SPAs (Gmail,
+    // Twitter/X) with thousands of nested elements, and the candidate loop
+    // below is otherwise O(n) *elements* each computing O(subtree) textContent
+    // (nested divs re-scan overlapping text) — one whole-page check first
+    // means non-job pages (the common case) never pay that cost at all.
+    const bodyMatches = (document.body.textContent.match(JOB_KEYWORDS) || []).length;
+    if (bodyMatches < minMatches) return null;
+
     const candidates = Array.from(document.querySelectorAll("main, article, section, div"))
       .filter((el) => {
         const len = el.textContent.length;
