@@ -92,12 +92,61 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
-- 2026-09-21: Added job-posting auto-detect to General Writer mode. On
-  known job boards/ATSes (or any site whose text scores as a job posting),
-  `generic_scrape.js` extracts just the job description instead of the full
-  page, and `sidebar.js` auto-switches to a new `cover_letter` category on
-  panel open. No new mode/pipeline was added — this extends the existing
-  General Writer scrape + category-sample mechanism.
+- 2026-09-21 (done, committed `7723bc8`): Added job-posting auto-detect to
+  General Writer mode. On known job boards/ATSes (or any site whose text
+  scores as a job posting), `generic_scrape.js` extracts just the job
+  description instead of the full page, and `sidebar.js` auto-switches to a
+  new `cover_letter` category on panel open. Extends the existing General
+  Writer scrape + category-sample mechanism, no new mode/pipeline.
+  Code-reviewed (medium effort) and 3 findings fixed: hostname check now
+  requires an exact/`.`-suffix match (was a bare `endsWith`, so
+  `notindeed.com` false-positived); `JOB_KEYWORDS` regex now has the `g`
+  flag (was capping match count at 1, making the density score binary);
+  extracted a shared `scrapeActiveTab()` helper in `sidebar.js` (was
+  duplicated between `detectJobPageAndConfigure` and `generateWriting`).
   **Not yet done:** no cover-letter writing samples exist yet under
-  `workspace/sample/cover_letter/` (folder created, empty) — quality will be
-  generic until the user drops some in via Settings.
+  `workspace/sample/cover_letter/` (folder created, empty) — quality will
+  be generic until the user drops some in via Settings.
+
+- **Next item (not started): nvim creative-writing flow.** Cursor
+  Ctrl-K/Ctrl-I-style in-editor agent call for nvim — finish writing, hit a
+  keybinding, agent reads context from cursor position, refines/expands/
+  proofreads, and on approval replaces selected text or iterates on inline
+  comments. Full design below; this is the only carryover plan, per doc
+  hygiene there is no separate plan.md.
+
+  - **UI layer:** avante.nvim's right-hand sidebar (not opencode's built-in
+    terminal UI) — finish paragraph, hit shortcut, agent reads from cursor,
+    diff/approve inline. avante.nvim supports pluggable custom
+    providers/vendors; register a custom provider that shells out to (or
+    otherwise drives) `opencode` as the executor, so model choice (local vs.
+    API) stays configured through `opencode`'s own config surface instead of
+    duplicating it inside avante.
+  - **Executor:** `opencode` CLI runs the actual refine/expand/proofread
+    call. It should reuse this repo's existing category + AI-detection
+    refine-loop logic (`server/review_engine.py`) rather than duplicating it
+    in the nvim plugin — exact reuse mechanism (import the Python module
+    directly vs. call the local server's existing HTTP endpoint) is an open
+    decision for whoever picks this up.
+  - **Trigger/interaction:** keybinding fires on a visual selection, or (no
+    selection) the paragraph containing the cursor. Modes: refine, expand,
+    proofread — selected the same way General Writer picks a category/voice.
+    Shows a preview (diff or side-by-side, avante's convention) before
+    touching the buffer. On approval: paste result over selection. On inline
+    comments instead: feed them back in, retune the draft, re-show preview,
+    loop until approved.
+  - **Context handling:** no RAG/vector pipeline by default — for a single
+    in-progress document, the right context is the surrounding text itself
+    (current file or a generous window around the cursor), plus this repo's
+    existing `docs/RULES.MD`/`docs/MEMORY.MD` and category samples, same as
+    the existing modes. RAG only earns its complexity for something like a
+    large "story bible"/character-notes folder spanning many files — a
+    stretch item, not the default flow.
+  - **Explicitly out of scope:** no ghost-text/autocomplete (refine/expand/
+    proofread on user-provided text only); no SemAI involvement of any
+    kind — this flow lives entirely in this repo; no RAG/vector store as a
+    default dependency.
+  - **Open decisions:** exact reuse path for `review_engine.py`'s refine
+    loop from nvim/opencode (import vs. local HTTP call); exact avante
+    custom-provider wiring for `opencode`; keybinding choice and Lua plugin
+    structure/location within this repo.
