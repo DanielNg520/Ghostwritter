@@ -92,6 +92,25 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
+- 2026-09-21 (done): tested the job-detection feature in Chrome via
+  Playwright with the unpacked extension loaded headless (no Xvfb needed —
+  full `chrome` binary + `--headless=new`, not the default headless-shell,
+  which can't load extensions). Confirmed sidebar UI, mode toggle, and the
+  `cover_letter` category render correctly. Found and fixed a real gap: the
+  keyword-score fallback in `generic_scrape.js` only ran on `JOB_SITE_HOSTS`
+  domains, so a real job description on a company's own domain (e.g.
+  `stripe.com/careers/listing/...`, the common case — most ATS postings are
+  custom-domain, not `boards.greenhouse.io`) was misclassified as
+  `"general"`. Fixed: `findByKeywordScore` now runs on any host, with a
+  stricter match threshold (3 vs. 1) off the known-host list to avoid
+  false positives. Also fixed a minor mislabel where a known-host page with
+  no extractable content (e.g. a LinkedIn login wall) was tagged `"job"`
+  anyway just from the hostname match; it now requires actual extracted
+  content. Known residual false positive: a page that discusses job
+  descriptions as a topic (not an actual posting) can still trip the
+  keyword threshold — accepted tradeoff, not worth tightening further at
+  the cost of recall on real short postings.
+
 - 2026-09-21 (done): removed `docs/plan.md` and `docs/plan_v2_generalist.md`
   — both were 100% completed historical build logs (v1 extension plan,
   generalist-writer/on-demand-server plan), referencing files that no

@@ -57,8 +57,13 @@ function scrapePageContent() {
   // Falls back to whichever element looks most like the actual job
   // description: highest density of job-posting keywords among
   // candidates with substantial (but not whole-page) text, so nav/sidebar/
-  // related-jobs chrome loses to the real description block.
-  function findByKeywordScore() {
+  // related-jobs chrome loses to the real description block. minMatches
+  // gates false positives: most ATS-powered postings today live on the
+  // company's own domain (stripe.com/careers/..., not boards.greenhouse.io),
+  // so this runs on ANY site, not just JOB_SITE_HOSTS — a higher bar is
+  // needed there than on a host we already know is a job board, since an
+  // unrelated page can mention one of these terms once in passing.
+  function findByKeywordScore(minMatches) {
     const candidates = Array.from(document.querySelectorAll("main, article, section, div"))
       .filter((el) => {
         const len = el.textContent.length;
@@ -70,7 +75,9 @@ function scrapePageContent() {
     for (const el of candidates) {
       const text = el.textContent;
       const matches = text.match(JOB_KEYWORDS);
-      const score = (matches ? matches.length : 0) * 1000 + Math.min(text.length, 5000);
+      const count = matches ? matches.length : 0;
+      if (count < minMatches) continue;
+      const score = count * 1000 + Math.min(text.length, 5000);
       if (score > bestScore) {
         bestScore = score;
         best = el;
@@ -81,11 +88,16 @@ function scrapePageContent() {
 
   const title = document.title;
 
-  if (isJobSite) {
-    const jobEl = findBySelectors() || findByKeywordScore();
-    if (jobEl) {
-      return { title, text: cleanText(jobEl).slice(0, 20000), siteType: "job" };
-    }
+  // Known job boards get the loose bar (1 keyword match is enough — the
+  // hostname already told us this is a job site). Everywhere else needs a
+  // denser cluster of job-posting language before we trust it's really a
+  // job description and not, say, a page that mentions "requirements" once.
+  const jobEl = isJobSite
+    ? findBySelectors() || findByKeywordScore(1)
+    : findByKeywordScore(3);
+
+  if (jobEl) {
+    return { title, text: cleanText(jobEl).slice(0, 20000), siteType: "job" };
   }
 
   const source =
@@ -93,5 +105,5 @@ function scrapePageContent() {
     document.querySelector("main") ||
     document.body;
 
-  return { title, text: cleanText(source).slice(0, 20000), siteType: isJobSite ? "job" : "general" };
+  return { title, text: cleanText(source).slice(0, 20000), siteType: "general" };
 }
