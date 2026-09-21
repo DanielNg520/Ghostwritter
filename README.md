@@ -172,9 +172,7 @@ Ghostwriter/
 │   └── requirements.txt            <- pinned Python deps, installed by setup.sh
 ├── docs/
 │   ├── RULES.MD.example            <- copy to RULES.MD and edit (gitignored)
-│   ├── MEMORY.MD.example           <- copy to MEMORY.MD and edit (gitignored)
-│   ├── plan.md                      <- original v1 implementation plan (historical)
-│   └── plan_v2_generalist.md       <- implementation plan for this generalist-writer/on-demand-server upgrade
+│   └── MEMORY.MD.example           <- copy to MEMORY.MD and edit (gitignored)
 └── workspace/
     ├── review/                    <- generated Product Review outputs land here (gitignored)
     ├── writing/                   <- generated General Writer outputs land here (gitignored)

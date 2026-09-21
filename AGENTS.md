@@ -92,6 +92,13 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
+- 2026-09-21 (done): removed `docs/plan.md` and `docs/plan_v2_generalist.md`
+  — both were 100% completed historical build logs (v1 extension plan,
+  generalist-writer/on-demand-server plan), referencing files that no
+  longer exist (`run_ghost_writer.py`). Per doc hygiene, completed plans
+  get trimmed, not kept as tracked files. Fixed the now-stale references
+  to them in `README.md`'s architecture tree.
+
 - 2026-09-21 (done, committed `7723bc8`): Added job-posting auto-detect to
   General Writer mode. On known job boards/ATSes (or any site whose text
   scores as a job posting), `generic_scrape.js` extracts just the job
