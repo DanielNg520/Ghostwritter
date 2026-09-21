@@ -128,6 +128,51 @@ providerSelect.addEventListener("change", async () => {
 
 initProviderSelect();
 
+// Shared by detectJobPageAndConfigure() and generateWriting(): finds the
+// active tab and runs scrapePageContent in it. Returns null instead of
+// throwing when the tab isn't scriptable (chrome://, no activeTab grant
+// left after a tab switch, etc.) — callers decide whether that's fatal.
+async function scrapeActiveTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return null;
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapePageContent,
+    });
+    return results[0]?.result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Runs once when the panel opens, using the activeTab grant from the
+// toolbar click that opened it. Detects a job posting (via
+// scrapePageContent's siteType) and switches the panel straight to
+// Cover Letter mode so opening a job page and hitting Generate "just
+// works" without manually flipping mode/category first. Best-effort:
+// fails silently on tabs it can't script — the panel just stays on its
+// defaults.
+async function detectJobPageAndConfigure() {
+  try {
+    const scraped = await scrapeActiveTab();
+    if (scraped?.siteType !== "job") return;
+
+    setMode("general");
+    if ([...categorySelect.options].some((option) => option.value === "cover_letter")) {
+      categorySelect.value = "cover_letter";
+    }
+    if (!promptInput.value.trim()) {
+      promptInput.value = "Write a tailored cover letter for this job based on the job description above.";
+    }
+    statusMessage.textContent = "Job posting detected — switched to Cover Letter mode.";
+  } catch {
+    // Not scriptable right now — leave the panel on its current mode/category.
+  }
+}
+
+detectJobPageAndConfigure();
+
 let currentMode = "review"; // "review" | "general"
 
 function setMode(mode) {
@@ -198,12 +243,9 @@ async function generateReview() {
 }
 
 async function generateWriting() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const results = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: scrapePageContent,
-  });
-  const { title, text } = results[0].result;
+  const scraped = await scrapeActiveTab();
+  if (!scraped) throw new Error("Could not read the current page — try a different tab.");
+  const { title, text } = scraped;
 
   const prompt = promptInput.value;
   const category = categorySelect.value;

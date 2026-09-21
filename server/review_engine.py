@@ -21,7 +21,7 @@ os.makedirs(WRITING_DIR, exist_ok=True)
 MAX_REFINE_ATTEMPTS = 5
 AI_SCORE_TARGET     = 20
 SAMPLES_CHAR_LIMIT = 60000
-SAMPLE_CATEGORIES = ("formal", "casual", "academic", "creative", "narrative", "technical", "review")
+SAMPLE_CATEGORIES = ("formal", "casual", "academic", "creative", "narrative", "technical", "review", "cover_letter")
 
 # Loaded once at import time (decrypts config/secrets.enc.yaml via sops) so
 # OpenRouter/Groq credentials have a default even when the extension's own
