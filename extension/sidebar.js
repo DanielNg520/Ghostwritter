@@ -24,6 +24,15 @@ const boundTabId = (() => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 })();
 
+// A panel can end up here without a ?tabId= if it wasn't opened via the
+// toolbar click (e.g. Chrome's own side-panel switcher, which uses the
+// manifest's untagged default path) — scrapeActiveTab()/generateReview()
+// already refuse to act in that case, so explain why instead of leaving
+// the panel silently inert.
+if (boundTabId === null) {
+  statusMessage.textContent = "Open Ghost Writer from the toolbar icon on the tab you want to use.";
+}
+
 // The server runs generation as a background job (POST .../start returns a
 // job_id) and reports its actual pipeline stage on each poll, so the bar
 // reflects real state — never a time-based guess. Stage order matches
@@ -203,6 +212,13 @@ function setMode(mode) {
 modeReviewBtn.addEventListener("click", () => setMode("review"));
 modeGeneralBtn.addEventListener("click", () => setMode("general"));
 
+// A cover letter's PDF is only valid for the category it was generated
+// under -- switching category without regenerating must not leave a stale
+// export available for the new (unmatched) category.
+categorySelect.addEventListener("change", () => {
+  exportPdfBtn.hidden = true;
+});
+
 settingsBtn.addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
@@ -300,6 +316,7 @@ async function exportCoverLetterPdf() {
 
   const doc = new jspdf.jsPDF();
   const margin = 20;
+  const bottomMargin = 20;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const textWidth = pageWidth - margin * 2;
@@ -308,11 +325,27 @@ async function exportCoverLetterPdf() {
   const lineHeight = 6;
   const paragraphGap = 8;
 
+  // Wraps to textWidth (using whatever font/size is active on doc right
+  // now) and paginates, same as the body text below -- a long address,
+  // LinkedIn URL, or employer name must not run past the right margin.
+  function drawWrapped(text, startY) {
+    const wrapped = doc.splitTextToSize(text, textWidth);
+    let localY = startY;
+    for (const wLine of wrapped) {
+      if (localY + lineHeight > pageHeight - bottomMargin) {
+        doc.addPage();
+        localY = margin;
+      }
+      doc.text(wLine, margin, localY);
+      localY += lineHeight;
+    }
+    return localY;
+  }
+
   if (profile.name) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
-    doc.text(profile.name, margin, y);
-    y += lineHeight + 2;
+    y = drawWrapped(profile.name, y) + 2;
   }
 
   doc.setFont("helvetica", "normal");
@@ -324,21 +357,17 @@ async function exportCoverLetterPdf() {
   if (cityLine) addressParts.push(cityLine);
 
   for (const part of addressParts) {
-    doc.text(part, margin, y);
-    y += lineHeight;
+    y = drawWrapped(part, y);
   }
 
   if (profile.phone) {
-    doc.text(profile.phone, margin, y);
-    y += lineHeight;
+    y = drawWrapped(profile.phone, y);
   }
   if (profile.email) {
-    doc.text(profile.email, margin, y);
-    y += lineHeight;
+    y = drawWrapped(profile.email, y);
   }
   if (profile.linkedin) {
-    doc.text(profile.linkedin, margin, y);
-    y += lineHeight;
+    y = drawWrapped(profile.linkedin, y);
   }
 
   y += paragraphGap;
@@ -349,18 +378,15 @@ async function exportCoverLetterPdf() {
     "July", "August", "September", "October", "November", "December",
   ];
   const dateStr = `${months[today.getMonth()]} ${today.getDate()}, ${today.getFullYear()}`;
-  doc.text(dateStr, margin, y);
-  y += lineHeight + paragraphGap;
+  y = drawWrapped(dateStr, y) + paragraphGap;
 
   if (lastEmployer) {
-    doc.text(lastEmployer, margin, y);
-    y += lineHeight;
+    y = drawWrapped(lastEmployer, y);
   }
 
   y += paragraphGap;
 
   const lines = doc.splitTextToSize(body, textWidth);
-  const bottomMargin = 20;
   for (const line of lines) {
     if (y + lineHeight > pageHeight - bottomMargin) {
       doc.addPage();
@@ -373,7 +399,8 @@ async function exportCoverLetterPdf() {
   const safeEmployer = (lastEmployer || "Cover Letter")
     .replace(/[/\\:*?"<>|]/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .slice(0, 180);
   doc.save(`${safeEmployer} - Cover Letter.pdf`);
 }
 

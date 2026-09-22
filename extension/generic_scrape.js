@@ -117,14 +117,22 @@ function scrapePageContent() {
 
       for (const entry of entries) {
         if (!entry || typeof entry !== "object") continue;
-        if (String(entry["@type"] || "").toLowerCase() !== "jobposting") continue;
+        // schema.org allows "@type" to be a single string or an array of
+        // strings (e.g. co-listed types) -- check both forms.
+        const types = Array.isArray(entry["@type"]) ? entry["@type"] : [entry["@type"]];
+        if (!types.some((t) => String(t || "").toLowerCase() === "jobposting")) continue;
 
-        const org = entry.hiringOrganization;
-        if (org && typeof org === "string" && org.trim()) {
-          return org.trim();
-        }
-        if (org && typeof org === "object" && org.name && typeof org.name === "string" && org.name.trim()) {
-          return org.name.trim();
+        // hiringOrganization is usually a single Organization, but
+        // schema.org permits an array for co-listed/staffing postings --
+        // take the first entry that yields a usable name.
+        const orgs = Array.isArray(entry.hiringOrganization) ? entry.hiringOrganization : [entry.hiringOrganization];
+        for (const org of orgs) {
+          if (org && typeof org === "string" && org.trim()) {
+            return org.trim();
+          }
+          if (org && typeof org === "object" && org.name && typeof org.name === "string" && org.name.trim()) {
+            return org.name.trim();
+          }
         }
       }
     }

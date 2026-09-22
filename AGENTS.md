@@ -126,6 +126,39 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
+- 2026-09-22 (done): high-effort multi-angle audit (8 finder angles) of
+  the Profile/PDF/tab-scoping work below found 6 more real issues beyond
+  the earlier passes, hand-fixed directly (small, targeted):
+  (1) `background.js`'s prior "await setOptions() before open()" fix
+  (see the entry below) was itself wrong — awaiting risks losing the
+  user-gesture window `sidePanel.open()` requires. Reverted to Chrome's
+  documented pattern: `open()` first (stays synchronous in the click
+  handler), `setOptions()` fired right after, both with `.catch()`
+  instead of silently dropping a rejection. (2) `#export-pdf-btn` stayed
+  visible after switching `#category-select` away from `cover_letter`
+  without regenerating, offering a stale/mismatched export — now hidden
+  on `categorySelect`'s `change` event. (3) A panel opened without
+  `?tabId=` (e.g. via Chrome's own side-panel switcher, which uses the
+  manifest's untagged default path) was silently inert with no
+  explanation — now sets a status message on load telling the user to
+  reopen it from the toolbar icon. (4) `extractEmployer()` only handled
+  a bare string/object for JSON-LD `@type`/`hiringOrganization`, missing
+  schema.org's valid array forms (co-listed types, co-listed postings) —
+  now checks both. (5) Letterhead lines in `exportCoverLetterPdf()` used
+  plain `doc.text()` with no width check, unlike the body — a long
+  address/LinkedIn URL/employer name could run past the page's right
+  margin; now wrapped via the same `doc.splitTextToSize()` approach
+  (`drawWrapped()` helper). (6) The exported PDF's filename sanitizer
+  had no length cap, unlike `server/review_engine.py`'s
+  `sanitize_filename()` (180 chars) — now capped to match. Re-verified
+  with the existing Playwright smoke tests plus new checks for all 6
+  fixes (unbound-panel message, category-change hiding, wrapped
+  long-value letterhead, filename cap) — all pass. Not fixed, by design:
+  the `og:site_name` fallback's `JOB_SITE_HOSTS` gate is still
+  non-exhaustive on purpose, matching this file's existing "best-effort,
+  not a registry to keep perfectly in sync" convention for the same
+  heuristic elsewhere in `generic_scrape.js`.
+
 - 2026-09-22 (done): second audit pass (medium effort) on the panel
   tab-scoping change below found `background.js`'s `chrome.sidePanel.
   setOptions()` wasn't awaited before `chrome.sidePanel.open()` — the two
