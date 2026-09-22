@@ -293,13 +293,21 @@ def read_samples(category=None):
     return "\n\n".join(samples)
 
 def list_sample_categories():
-    """Return the list of category folder names under workspace/sample/."""
+    """Return category folder names under workspace/sample/, in
+    SAMPLE_CATEGORIES's declared order (any directory not listed there
+    sorts alphabetically after) -- this is the single source of truth for
+    category *order* too, not just membership, since the extension's
+    category dropdown and sample panels both derive their list from this
+    via GET /samples rather than keeping their own hardcoded order."""
     if not os.path.isdir(SAMPLE_DIR):
         return []
-    return sorted(
+    existing = {
         name for name in os.listdir(SAMPLE_DIR)
         if not name.startswith(".") and os.path.isdir(os.path.join(SAMPLE_DIR, name))
-    )
+    }
+    ordered = [c for c in SAMPLE_CATEGORIES if c in existing]
+    extra = sorted(existing - set(SAMPLE_CATEGORIES))
+    return ordered + extra
 
 def list_samples(category):
     """Return filenames (skipping dotfiles/.gitkeep) in a category folder."""

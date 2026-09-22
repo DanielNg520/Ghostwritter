@@ -175,5 +175,31 @@ class TestUniquePath(unittest.TestCase):
                 self.assertLessEqual(len(base), len("x" * 80) + len(".txt"))
 
 
+class TestListSampleCategories(unittest.TestCase):
+    # extension/settings.js and sidebar.js both derive their category
+    # list/order from this via GET /samples -- a plain sorted() here
+    # silently regressed the intended display order once already.
+    def test_returns_categories_in_sample_categories_declared_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            # Create dirs in a DIFFERENT order than SAMPLE_CATEGORIES
+            # declares, to prove the result isn't just os.listdir() order
+            # or alphabetical order.
+            for name in ["review", "formal", "cover_letter", "academic"]:
+                os.makedirs(os.path.join(d, name))
+            with patch.object(gw, "SAMPLE_DIR", d):
+                result = gw.list_sample_categories()
+        expected = [c for c in gw.SAMPLE_CATEGORIES if c in {"review", "formal", "cover_letter", "academic"}]
+        self.assertEqual(result, expected)
+        self.assertNotEqual(result, sorted(result), "would coincidentally pass if still alphabetical")
+
+    def test_unlisted_directory_sorts_after_known_categories(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name in ["formal", "zzz_custom", "academic"]:
+                os.makedirs(os.path.join(d, name))
+            with patch.object(gw, "SAMPLE_DIR", d):
+                result = gw.list_sample_categories()
+        self.assertEqual(result, ["formal", "academic", "zzz_custom"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

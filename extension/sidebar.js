@@ -100,7 +100,10 @@ async function populateCategorySelect() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    const categories = Object.keys(data.categories).sort();
+    // Server sends categories in its own intended display order (see
+    // list_sample_categories()) -- Object.keys() preserves that insertion
+    // order for string keys, so don't re-sort it alphabetically here.
+    const categories = Object.keys(data.categories);
     categorySelect.replaceChildren();
 
     for (const category of categories) {

@@ -209,7 +209,10 @@ async function loadAllSamples() {
     }
     const data = await response.json();
     const categories = data.categories || {};
-    const categoryNames = Object.keys(categories).sort();
+    // Server sends categories in its own intended display order (see
+    // list_sample_categories()) -- Object.keys() preserves that insertion
+    // order for string keys, so don't re-sort it alphabetically here.
+    const categoryNames = Object.keys(categories);
     buildCategoryPanels(categoryNames);
     categoryNames.forEach((category) => {
       renderSampleList(category, categories[category] || []);

@@ -191,6 +191,41 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
+- 2026-09-22 (done): medium-effort audit of the reuse-consolidation
+  commit below found: (1) deriving categories from `GET /samples` via
+  `Object.keys(categories).sort()` silently replaced the intended
+  curated display order (formal, casual, academic, ...) with
+  alphabetical — a real, undocumented UX regression. Fixed at the
+  server, not the client: `list_sample_categories()` now returns
+  categories in `SAMPLE_CATEGORIES`'s declared order (any directory not
+  listed there sorts alphabetically after), and both `settings.js`/
+  `sidebar.js` dropped their own `.sort()` — `Object.keys()` on a
+  `JSON.parse()`'d object preserves the server's insertion order for
+  string keys, so the server is now the single source of truth for
+  order too, not just membership. Added 2 unit tests proving the order
+  isn't coincidentally alphabetical. (2) The "stop at a Similar-jobs
+  boundary" profile-link fix can break too early on a page whose
+  boundary heading appears earlier in DOM order than the real content
+  due to CSS `order`/grid reflow (visual position ≠ DOM position) —
+  accepted as a narrow, hard-to-fix-cheaply edge case (would need
+  forcing layout via `getBoundingClientRect()` for what's already a
+  last-resort heuristic before `og:site_name`); the editable
+  `#employer-input` remains the safety net.
+  **Gotcha hit while verifying this fix, worth knowing for future
+  sessions:** `native-host/host.py` auto-spawns a `--managed`
+  `server.py` instance the first time the extension's toolbar icon is
+  clicked or its panel reconnects (see `background.js`'s
+  `warmUpServer()`) — if that happened earlier in a session (e.g. from
+  `./reload-extension.sh`) and the server's Python source changes
+  afterward, that managed instance keeps serving the *stale* code
+  indefinitely (no auto-restart on file change), and a manually-started
+  `python3 server.py` for testing will silently fail to bind
+  (port 8000 already in use) and exit — so `curl localhost:8000/...`
+  can look like it's hitting your latest change when it's actually
+  still hitting the old one. Check `lsof -ti:8000` and kill any stale
+  instance before trusting a manual server test after a server-side
+  code change.
+
 - 2026-09-22 (done): codebase-wide reuse audit per the user's global
   "no blind addition" code policy (`~/.claude/CLAUDE.md`, "prefer reuse
   over new primitives") — the concrete prompt was noticing that
