@@ -96,6 +96,35 @@ function scrapePageContent() {
   }
 
   function extractEmployer() {
+    // Generic nav/action/status labels and numeric-badge patterns that can
+    // sit right next to (or literally be) a candidate "employer name"
+    // without actually naming one -- a "Follow" button, a "Company" nav
+    // link, a "58 open jobs" counter, a bare "Careers" og:site_name
+    // default. One shared check used everywhere a candidate string is
+    // considered, instead of a separate stoplist per call site.
+    const GENERIC_LABELS = new Set([
+      "company", "companies", "about", "about us", "home",
+      "employer", "employers", "careers", "jobs", "career", "job",
+      "follow", "following", "unfollow", "verified", "save", "saved",
+      "share", "apply", "connect", "message",
+    ]);
+    const GENERIC_LABEL_PATTERNS = [
+      /^\d[\d,]*\+?\s*(open\s+)?jobs?$/i,
+      /^\d[\d,]*\+?\s*followers?$/i,
+      /^(follow|following|unfollow|verified|save|saved|share|apply|connect|message)\b/i,
+    ];
+    function isGenericLabel(text) {
+      // Strip decorative leading/trailing chevrons/arrows/bullets first, so
+      // "Company ›" or "Follow · 12,483 followers" still match.
+      const normalized = text
+        .replace(/^[\s›»→•·]+|[\s›»→•·]+$/g, "")
+        .trim();
+      if (!normalized) return true;
+      const lower = normalized.toLowerCase();
+      if (GENERIC_LABELS.has(lower)) return true;
+      return GENERIC_LABEL_PATTERNS.some((re) => re.test(lower));
+    }
+
     const scripts = document.querySelectorAll('script[type="application/ld+json"]');
     for (const script of scripts) {
       let data;
@@ -152,14 +181,6 @@ function scrapePageContent() {
       const label = (heading.textContent || "").trim().toLowerCase();
       if (!ABOUT_LABELS.has(label)) continue;
 
-      // Common action-button/status labels that can sit right next to an
-      // "About the employer" heading (Follow, Verified, Apply, ...) without
-      // naming the employer at all.
-      const BADGE_LABELS = new Set([
-        "follow", "following", "unfollow", "verified", "save", "saved",
-        "share", "apply", "connect", "message"
-      ]);
-
       // Heading/link elements within the same parent are a much stronger
       // signal than an arbitrary next sibling (which is as likely to be a
       // badge or button as the actual company name), so they're tried
@@ -182,7 +203,7 @@ function scrapePageContent() {
 
       for (const candidate of [...strongCandidates, ...weakCandidates]) {
         const text = (candidate.textContent || "").trim();
-        if (text && text.length <= 100 && !BADGE_LABELS.has(text.toLowerCase())) {
+        if (text && text.length <= 100 && !isGenericLabel(text)) {
           return text;
         }
       }
@@ -192,39 +213,39 @@ function scrapePageContent() {
     // name to a URL with a predictable path shape across many platforms.
     // Generic nav labels ("Company", "About") happen to share that same
     // path shape (e.g. a top-nav link to "/company") without naming the
-    // employer at all, so those exact labels are rejected outright.
-    const GENERIC_LINK_LABELS = new Set([
-      "company", "companies", "about", "about us", "home",
-      "employer", "employers", "careers", "jobs"
-    ]);
+    // employer at all, so those are rejected via the shared check above.
     const PROFILE_PATH_PATTERN = /\/(company|companies|employer|employers|org|organizations|cmp)\//i;
     const links = document.querySelectorAll("a");
     for (const link of links) {
       const href = link.href;
       if (!href || !PROFILE_PATH_PATTERN.test(href)) continue;
       const text = (link.textContent || "").trim();
-      if (text && text.length <= 100 && !GENERIC_LINK_LABELS.has(text.toLowerCase())) {
+      if (text && text.length <= 100 && !isGenericLabel(text)) {
         return text;
       }
     }
 
-    // og:site_name gated by value: skip known job-board/ATS/platform brands.
-    const PLATFORM_BRANDS = new Set([
+    // og:site_name gated by value: skip known job-board/ATS/platform brands
+    // (word-boundary match, not raw substring -- ".includes('dice')" would
+    // wrongly reject a real employer like "Dicerna Pharmaceuticals"; a
+    // single-word brand that's also an ordinary English word, e.g.
+    // "Monster"/"Dice", can still collide with a real company name that
+    // happens to use the same whole word -- an accepted, low-probability
+    // edge this heuristic can't resolve without external host info), and
+    // reject bare generic values ("Careers", "Jobs") via the shared check.
+    const PLATFORM_BRANDS = [
       "linkedin", "handshake", "indeed", "glassdoor", "greenhouse",
       "lever", "workday", "ziprecruiter", "wellfound", "angellist",
       "ashby", "smartrecruiters", "icims", "taleo", "simplify",
       "monster", "dice", "workable", "bamboohr", "breezy", "jazzhr",
-      "recruitee", "personio", "teamtailor", "jobvite", "comeet"
-    ]);
+      "recruitee", "personio", "teamtailor", "jobvite", "comeet",
+    ];
     const meta = document.querySelector('meta[property="og:site_name"]');
     if (meta && meta.content && meta.content.trim()) {
       const siteName = meta.content.trim();
       const siteNameLower = siteName.toLowerCase();
-      // Substring match, not exact -- a brand often shows up inside a
-      // longer og:site_name value (e.g. "Greenhouse Job Board",
-      // "Workday - Acme Corp"), not just as the bare word alone.
-      const isPlatformBrand = [...PLATFORM_BRANDS].some((brand) => siteNameLower.includes(brand));
-      if (!isPlatformBrand) {
+      const isPlatformBrand = PLATFORM_BRANDS.some((brand) => new RegExp(`\\b${brand}\\b`).test(siteNameLower));
+      if (!isPlatformBrand && !isGenericLabel(siteName)) {
         return siteName;
       }
     }

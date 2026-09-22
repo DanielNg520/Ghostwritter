@@ -133,7 +133,14 @@ Read this file first. Update it after every implementation change.
 
 ## Test / run commands
 
-- No automated test suite exists yet.
+- `tests/browser/smoke_test.py` — the extension's automated test suite
+  (`extractEmployer()`'s heuristics, Settings Profile round-trip, PDF
+  export/pagination/filename, panel tab-binding, cross-tab isolation).
+  `pip install -r tests/requirements-dev.txt && playwright install
+  chromium`, then `python3 tests/browser/smoke_test.py` — self-contained
+  (starts its own local fixture server, launches a throwaway Chromium
+  profile with the unpacked extension, no manual setup). Fixtures live in
+  `tests/browser/fixtures/`. No unit-test suite for `server/`.
 - `./setup.sh` — cross-platform install/package script.
 - `./reload-extension.sh` — reload the unpacked extension in Chrome during dev.
 - `./package.sh` — package the extension for distribution.
@@ -143,6 +150,37 @@ Read this file first. Update it after every implementation change.
   native host. For direct debugging: `python server/server.py` from `server/`.
 
 ## Carryover
+
+- 2026-09-22 (done): a high-effort audit found 4 more real precision gaps
+  in `extractEmployer()`, hand-fixed directly: (1) removing "careers"/
+  "jobs" from `PLATFORM_BRANDS` (see the entry below) let a *bare*
+  `og:site_name` of exactly "Careers"/"Jobs" through as a literal
+  employer value — fixed via a shared `isGenericLabel()` exact-match
+  check, not by re-adding those words to the substring-matched brand
+  list (that would have reintroduced the original false-rejection bug).
+  (2) `PLATFORM_BRANDS`' substring match rejected real employers whose
+  name contains a brand word, e.g. "Dicerna Pharmaceuticals" via "dice"
+  — switched to word-boundary regex matching (a single-word brand that's
+  also an ordinary word, e.g. "Monster", can still collide with a real
+  company using that literal word — accepted, unresolvable without host
+  info). (3) The About-heading candidate scan could pick a numeric
+  counter like "58 open jobs" over the real name — added a shared
+  pattern check. (4) Stoplists only caught exact matches, missing
+  decorated variants ("Company ›", "Follow · 12,483 followers") — now
+  normalized (strip leading/trailing chevrons/bullets) before comparing.
+  The audit also flagged, correctly, that `BADGE_LABELS`/
+  `GENERIC_LINK_LABELS` were 3 separately-maintained stoplists at 3 call
+  sites (a "whack-a-mole" pattern that would keep recurring) — 2 and 3
+  are now the *same* `GENERIC_LABELS`/`isGenericLabel()` check, function-
+  scoped (was previously rebuilt every loop iteration) and shared across
+  all three heuristics (About-heading candidates, profile-link text,
+  and the bare-`og:site_name` case). Verified with 12 heuristic checks
+  (7 prior + 5 new, covering all 4 fixes) plus the rest of the suite —
+  26 checks total, now committed as `tests/browser/smoke_test.py` (see
+  Test/run commands above) instead of living only in an ephemeral
+  session scratchpad. A prior carryover entry below claimed Playwright
+  verification without anything reproducible committed to the repo —
+  that's corrected going forward by this real, runnable suite.
 
 - 2026-09-22 (done): a medium-effort audit of the universal-employer-
   heuristic work below found 3 more precision gaps, hand-fixed directly:
