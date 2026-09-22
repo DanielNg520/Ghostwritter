@@ -187,10 +187,12 @@ providerSelect.addEventListener("change", async () => {
 
 initProviderSelect();
 
-// Shared by detectJobPageAndConfigure() and generateWriting(): finds the
-// bound tab and runs scrapePageContent in it. Returns null instead of
-// throwing when the tab isn't scriptable (chrome://, no activeTab grant
-// left after a tab switch, etc.) — callers decide whether that's fatal.
+// Shared by detectJobPageAndConfigure() and generateWriting(): resolves
+// the target tab via resolveTargetTabId() (bound tab, or the active-tab
+// fallback) and runs scrapePageContent in it. Returns null instead of
+// throwing when there's no target tab, or it isn't scriptable (chrome://,
+// no activeTab grant left after a tab switch, etc.) — callers decide
+// whether that's fatal.
 async function scrapeActiveTab() {
   const tabId = await resolveTargetTabId();
   if (tabId === null) return null;
