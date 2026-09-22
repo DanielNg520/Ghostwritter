@@ -10,8 +10,12 @@ Read this file first. Update it after every implementation change.
 ## Architecture
 
 - **extension/** — MV3 extension, side-panel UI.
-  - `background.js` — service worker. Opens the side panel on toolbar click,
-    warms up the native host (which ensures the local server is running).
+  - `background.js` — service worker. On toolbar click, binds the side panel
+    to that specific tab (`chrome.sidePanel.setOptions({tabId, path:
+    "sidebar.html?tabId=<id>", enabled: true})`) before opening it, so each
+    tab gets its own panel instance instead of one shared panel that follows
+    whichever tab is currently focused. Also warms up the native host (which
+    ensures the local server is running).
   - `content.js` — static content script, scoped to `*://*.amazon.com/*`
     (see `host_permissions`). Scrapes product title/bullets for Review mode.
   - `generic_scrape.js` — page scraper for General Writer mode. Injected via
@@ -20,17 +24,45 @@ Read this file first. Update it after every implementation change.
     hostname (LinkedIn, Handshake, Indeed, Greenhouse, Lever, Workday, etc.)
     and, on those, extracts just the job-description block (via a selector
     shortlist, falling back to a keyword-scored heuristic) instead of the
-    whole page — returns `{ title, text, siteType: "job"|"general" }`.
-  - `sidebar.js` / `sidebar.html` — the panel UI. Two modes: **Review**
-    (Amazon) and **General Writer** (any page + free-form prompt + a style
-    "category" that pulls matching writing samples). On panel open,
-    `detectJobPageAndConfigure()` best-effort-scripts the active tab; if
+    whole page — returns `{ title, text, siteType: "job"|"general", employer }`.
+    `employer` (company name, or `null`) is read from JSON-LD `JobPosting`
+    structured data first, then (only on a non-`JOB_SITE_HOSTS` domain, since
+    on a known ATS `og:site_name` is the platform's own brand, not the real
+    employer) `<meta property="og:site_name">`; used to name the exported
+    cover-letter PDF and as its recipient line. Re-read on every
+    `generateWriting()` call and overwrites `lastEmployer` unconditionally
+    (including with `null`) so a later page's missing employer can't leave a
+    stale employer name from an earlier generation in the exported PDF.
+  - `sidebar.js` / `sidebar.html` — the panel UI. Reads its own bound tab id
+    from `location.search` (`?tabId=<id>`, set by `background.js`) into
+    `boundTabId`; `scrapeActiveTab()`/`generateReview()` target that id
+    directly instead of querying whichever tab is currently active/focused,
+    so the panel always acts on the tab it was opened from — switching tabs
+    while it's open does not change what it reads. A panel opened without
+    that param (e.g. hit directly, not via the toolbar click) has
+    `boundTabId === null`: `scrapeActiveTab()` returns `null` and
+    `generateReview()` throws instead of guessing a tab. Two modes:
+    **Review** (Amazon) and **General Writer** (any page + free-form prompt
+    + a style "category" that pulls matching writing samples). On panel
+    open, `detectJobPageAndConfigure()` best-effort-scripts the bound tab; if
     `siteType === "job"`, it auto-switches to General mode, sets category to
     `cover_letter`, and prefills the prompt — so opening a job page and
     hitting Generate needs no manual setup. Fails silently if the tab isn't
-    scriptable (no fresh `activeTab` grant, `chrome://` page, etc.).
+    scriptable (no fresh `activeTab` grant, `chrome://` page, etc.). After a
+    successful `cover_letter` generation, an "Export as PDF" button
+    (`#export-pdf-btn`, hidden otherwise) becomes visible;
+    `exportCoverLetterPdf()` builds a letterhead from `profileInfo` (Settings
+    → Profile) + the last-scraped `employer` + today's date, then paginates
+    the generated body text via vendored jsPDF and saves
+    `<Employer> - Cover Letter.pdf`. No server round-trip — entirely
+    client-side from the already-approved output text.
   - `settings.js` / `settings.html` — provider credentials, writing-sample
-    upload/delete per category.
+    upload/delete per category, and a Profile section (`profileInfo` in
+    `chrome.storage.local`: name/email/phone/address/city/state/zip/
+    linkedin) used to fill in the sender block on exported cover letters.
+  - `lib/jspdf.umd.min.js` — vendored jsPDF 2.5.2 UMD build (MV3 CSP forbids
+    loading it from a CDN). Loaded before `generic_scrape.js`/`sidebar.js`
+    in `sidebar.html`, exposes the global `jspdf.jsPDF`.
 - **server/** — local FastAPI server (`localhost:8000`), spawned on demand by
   the native host, not run standalone by the user.
   - `server.py` — routes: `/generate-review/*`, `/generate-writing/*`
@@ -93,6 +125,86 @@ Read this file first. Update it after every implementation change.
   native host. For direct debugging: `python server/server.py` from `server/`.
 
 ## Carryover
+
+- 2026-09-22 (done): second audit pass (medium effort) on the panel
+  tab-scoping change below found `background.js`'s `chrome.sidePanel.
+  setOptions()` wasn't awaited before `chrome.sidePanel.open()` — the two
+  calls could race, letting the panel occasionally load with the
+  manifest's untagged default path instead of the tab-scoped one,
+  silently defeating the fix. Hand-fixed directly (one-line, small
+  tweak): `onClicked` listener is now `async` and awaits `setOptions()`
+  before calling `open()`.
+
+- 2026-09-22 (done, dispatched via TriAPI): panel tab-scoping. The side
+  panel used to be one shared instance that followed whichever tab was
+  currently active/focused in the window — `sidebar.js` queried
+  `chrome.tabs.query({active, currentWindow})`, so switching tabs while
+  the panel stayed open silently redirected Generate to the new tab's
+  content instead of the tab the panel was opened from (a real cross-tab
+  data leak risk). Fixed: `background.js` now binds the panel to the
+  clicked tab via `sidePanel.setOptions({tabId, path: "sidebar.html?tabId=
+  <id>", enabled: true})`; `sidebar.js` reads that id back out of its own
+  URL (`boundTabId`) and targets it directly in `scrapeActiveTab()`/
+  `generateReview()`, never the "active" tab. Verified with a Playwright
+  test serving two fake job postings over `localhost` (the one host the
+  manifest already grants without needing a real toolbar-click gesture):
+  with tab B (Globex) frontmost, a panel opened bound to tab A (Acme)
+  still read only tab A's content; a panel opened with no `tabId` param
+  correctly refused to read anything or generate. 2 tasks (1 agy, 1
+  DeepSeek off-peak, ~$0.0012), each audited before applying.
+
+- 2026-09-22 (done): code-review audit (medium effort) of the Profile/PDF
+  feature below found and fixed 2 real bugs, both hand-fixed directly
+  (small, targeted — not routed through TriAPI): (1) `lastEmployer` in
+  `sidebar.js` only updated when the new scrape found an employer, so a
+  cover letter generated for a page where detection failed kept showing
+  the *previous* job's employer in the exported PDF — now unconditionally
+  overwritten every `generateWriting()` call. (2) `extractEmployer()`'s
+  `og:site_name` fallback in `generic_scrape.js` picked up the ATS
+  platform's own brand (e.g. "Greenhouse") on `JOB_SITE_HOSTS` domains
+  instead of the real employer — now only used on non-listed (company's
+  own) domains. A third finding — `review_engine.py`'s `run_agy()`
+  default effort was previously changed from `high` to `low`, which
+  silently downgrades the main generation call, not just the cheap
+  AI-score check that already opts into `low` explicitly — was **not**
+  auto-reverted since it was the user's own prior pending edit, not part
+  of this feature; flagged for the user to confirm intent.
+
+- 2026-09-22 (done): smoke-tested the Profile + PDF export feature (below)
+  via a self-contained Playwright session (`--load-extension`, separate
+  from the user's real Chrome profile) rather than the user's live
+  browser, since loading an unpacked extension needs a fresh Chrome
+  process. 16/16 feature checks passed: `scrapePageContent()` employer
+  extraction from JSON-LD on a synthetic job page, Settings → Profile
+  save/reload round-trip through `chrome.storage.local`, `#export-pdf-btn`
+  hidden by default, and an actual multi-page PDF generated via
+  `exportCoverLetterPdf()` (verified with `pypdf`: correct sender
+  letterhead, date, and paginated body). 2 unrelated console errors
+  (`ERR_CONNECTION_REFUSED` fetching `localhost:8000`) are expected — the
+  local FastAPI server wasn't running in the isolated test profile.
+
+- 2026-09-22 (done, dispatched via TriAPI rebuild pipeline per the
+  hand-write-vs-dispatch rule — this was "big stuff", not a small tweak):
+  Profile + cover-letter PDF export. Added a Profile section to
+  Settings (`profileInfo` in `chrome.storage.local`); extended
+  `scrapePageContent()` to extract `employer` from JSON-LD `JobPosting`
+  data / `og:site_name`; vendored jsPDF (`extension/lib/jspdf.umd.min.js`,
+  CDN loading is CSP-blocked under MV3); added `exportCoverLetterPdf()` to
+  `sidebar.js`, wired to a new `#export-pdf-btn` that appears after a
+  successful cover-letter generation. All 6 sub-tasks planned and prompted
+  by Claude, written by DeepSeek (2 tasks, off-peak, ~$0.0017 total) / agy
+  (4 tasks), each audited before applying — see TriAPI's own task queue
+  for the individual task records. Not yet done: no in-extension UI
+  validation (Chrome not driven this session) — user should smoke-test
+  Settings → Profile save/reload and a real Export-as-PDF click on an
+  actual job posting before relying on it for a real submission.
+
+- 2026-09-21 (in progress, uncommitted): two local edits pending
+  verification — `sidebar.css` `#output` changed from a fixed
+  `min-height: 160px` to `flex: 1 1 160px; min-height: 0` (flex-fills the
+  panel instead of a fixed height); `review_engine.py`'s `run_agy()`
+  default model/effort changed `gemini-3.7-flash/high` →
+  `gemini-3.7-pro/low`. Not yet verified in Chrome/against real agy calls.
 
 - 2026-09-21 (done): code review of the any-host keyword-fallback fix
   flagged that `findByKeywordScore` now walks and regex-scans every

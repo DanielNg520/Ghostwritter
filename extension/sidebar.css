@@ -275,7 +275,8 @@ label {
 }
 
 #output {
-  min-height: 160px;
+  flex: 1 1 160px;
+  min-height: 0;
   /* Bounded to the sidebar's own viewport instead of growing past it —
      overflow scrolls internally rather than pushing the page taller. */
   max-height: 45vh;
@@ -316,6 +317,29 @@ label {
 #generate-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+#export-pdf-btn {
+  background-color: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  margin-top: var(--space-2);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+#export-pdf-btn:hover:not(:disabled) {
+  background-color: var(--color-primary-soft);
+  border-color: var(--color-primary);
+}
+
+#export-pdf-btn[hidden] {
+  display: none;
 }
 
 /* ---------- Loading state ---------- */

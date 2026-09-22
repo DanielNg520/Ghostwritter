@@ -18,7 +18,11 @@ function warmUpServer() {
   }
 }
 
-chrome.action.onClicked.addListener((tab) => {
+chrome.action.onClicked.addListener(async (tab) => {
+  // Must await setOptions() before open() -- otherwise the two calls race
+  // and the panel can load with the manifest's untagged default path
+  // instead of the tab-scoped one, silently defeating the tab binding.
+  await chrome.sidePanel.setOptions({ tabId: tab.id, path: `sidebar.html?tabId=${tab.id}`, enabled: true });
   chrome.sidePanel.open({ tabId: tab.id });
   warmUpServer();
 });

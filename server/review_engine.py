@@ -108,7 +108,7 @@ def _parse_agy_json(stdout):
     except (json.JSONDecodeError, ValueError):
         return None
 
-def run_agy(prompt, model="gemini-3.7-flash", effort="high", timeout=300):
+def run_agy(prompt, model="gemini-3.7-pro", effort="low", timeout=300):
     """
     Call agy in print mode. Falls back to default model on recognition errors.
     Returns just the final answer text, not agy's own tool-call/task chatter.

@@ -15,6 +15,14 @@ const statusMessage = document.getElementById("status-message");
 const settingsBtn = document.getElementById("settings-btn");
 const progressFill = document.getElementById("progress-fill");
 const progressEta = document.getElementById("progress-eta");
+const exportPdfBtn = document.getElementById("export-pdf-btn");
+
+const boundTabId = (() => {
+  const match = new URLSearchParams(location.search).get("tabId");
+  if (!match) return null;
+  const parsed = Number(match);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+})();
 
 // The server runs generation as a background job (POST .../start returns a
 // job_id) and reports its actual pipeline stage on each poll, so the bar
@@ -129,15 +137,14 @@ providerSelect.addEventListener("change", async () => {
 initProviderSelect();
 
 // Shared by detectJobPageAndConfigure() and generateWriting(): finds the
-// active tab and runs scrapePageContent in it. Returns null instead of
+// bound tab and runs scrapePageContent in it. Returns null instead of
 // throwing when the tab isn't scriptable (chrome://, no activeTab grant
 // left after a tab switch, etc.) — callers decide whether that's fatal.
 async function scrapeActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return null;
+  if (boundTabId === null) return null;
   try {
     const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: boundTabId },
       func: scrapePageContent,
     });
     return results[0]?.result ?? null;
@@ -174,6 +181,7 @@ async function detectJobPageAndConfigure() {
 detectJobPageAndConfigure();
 
 let currentMode = "review"; // "review" | "general"
+let lastEmployer = null;
 
 function setMode(mode) {
   currentMode = mode;
@@ -186,6 +194,10 @@ function setMode(mode) {
   modeGeneralBtn.classList.toggle("active", !isReview);
 
   generateBtn.textContent = isReview ? "Generate Review" : "Generate Writing";
+
+  if (isReview) {
+    exportPdfBtn.hidden = true;
+  }
 }
 
 modeReviewBtn.addEventListener("click", () => setMode("review"));
@@ -218,8 +230,10 @@ async function getProviderSettings() {
 }
 
 async function generateReview() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const { title, details } = await chrome.tabs.sendMessage(tab.id, {
+  if (boundTabId === null) {
+    throw new Error("This panel isn't bound to a tab — reopen it from the toolbar icon.");
+  }
+  const { title, details } = await chrome.tabs.sendMessage(boundTabId, {
     action: "scrapeProductData",
   });
 
@@ -245,7 +259,9 @@ async function generateReview() {
 async function generateWriting() {
   const scraped = await scrapeActiveTab();
   if (!scraped) throw new Error("Could not read the current page — try a different tab.");
-  const { title, text } = scraped;
+  const { title, text, employer } = scraped;
+
+  lastEmployer = employer;
 
   const prompt = promptInput.value;
   const category = categorySelect.value;
@@ -266,7 +282,102 @@ async function generateWriting() {
   if (data.provider_warning) {
     statusMessage.textContent = data.provider_warning;
   }
+
+  if (category === "cover_letter" && data.writing) {
+    exportPdfBtn.hidden = false;
+  }
 }
+
+async function exportCoverLetterPdf() {
+  const body = output.value.trim();
+  if (!body) {
+    statusMessage.textContent = "Nothing to export yet — generate a cover letter first.";
+    return;
+  }
+
+  const { profileInfo } = await chrome.storage.local.get("profileInfo");
+  const profile = profileInfo ?? {};
+
+  const doc = new jspdf.jsPDF();
+  const margin = 20;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const textWidth = pageWidth - margin * 2;
+  let y = margin;
+
+  const lineHeight = 6;
+  const paragraphGap = 8;
+
+  if (profile.name) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text(profile.name, margin, y);
+    y += lineHeight + 2;
+  }
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+
+  const addressParts = [];
+  if (profile.address) addressParts.push(profile.address);
+  const cityLine = [profile.city, profile.state, profile.zip].filter(Boolean).join(" ");
+  if (cityLine) addressParts.push(cityLine);
+
+  for (const part of addressParts) {
+    doc.text(part, margin, y);
+    y += lineHeight;
+  }
+
+  if (profile.phone) {
+    doc.text(profile.phone, margin, y);
+    y += lineHeight;
+  }
+  if (profile.email) {
+    doc.text(profile.email, margin, y);
+    y += lineHeight;
+  }
+  if (profile.linkedin) {
+    doc.text(profile.linkedin, margin, y);
+    y += lineHeight;
+  }
+
+  y += paragraphGap;
+
+  const today = new Date();
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  const dateStr = `${months[today.getMonth()]} ${today.getDate()}, ${today.getFullYear()}`;
+  doc.text(dateStr, margin, y);
+  y += lineHeight + paragraphGap;
+
+  if (lastEmployer) {
+    doc.text(lastEmployer, margin, y);
+    y += lineHeight;
+  }
+
+  y += paragraphGap;
+
+  const lines = doc.splitTextToSize(body, textWidth);
+  const bottomMargin = 20;
+  for (const line of lines) {
+    if (y + lineHeight > pageHeight - bottomMargin) {
+      doc.addPage();
+      y = margin;
+    }
+    doc.text(line, margin, y);
+    y += lineHeight;
+  }
+
+  const safeEmployer = (lastEmployer || "Cover Letter")
+    .replace(/[/\\:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  doc.save(`${safeEmployer} - Cover Letter.pdf`);
+}
+
+exportPdfBtn.addEventListener("click", exportCoverLetterPdf);
 
 // Pulls FastAPI's {"detail": "..."} out of a non-ok response so the status
 // message can show what actually went wrong, instead of a generic string.
@@ -285,6 +396,7 @@ generateBtn.addEventListener("click", async () => {
   generateBtn.disabled = true;
   loading.hidden = false;
   resetProgress();
+  exportPdfBtn.hidden = true;
 
   try {
     if (currentMode === "review") {

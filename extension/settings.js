@@ -63,6 +63,46 @@ saveBtn.addEventListener('click', () => {
   });
 });
 
+const profileName = document.getElementById('profile-name');
+const profileEmail = document.getElementById('profile-email');
+const profilePhone = document.getElementById('profile-phone');
+const profileAddress = document.getElementById('profile-address');
+const profileCity = document.getElementById('profile-city');
+const profileState = document.getElementById('profile-state');
+const profileZip = document.getElementById('profile-zip');
+const profileLinkedin = document.getElementById('profile-linkedin');
+const saveProfileBtn = document.getElementById('save-profile-btn');
+const profileStatus = document.getElementById('profile-status');
+
+chrome.storage.local.get('profileInfo').then((result) => {
+  const profile = result.profileInfo;
+  profileName.value = profile?.name ?? '';
+  profileEmail.value = profile?.email ?? '';
+  profilePhone.value = profile?.phone ?? '';
+  profileAddress.value = profile?.address ?? '';
+  profileCity.value = profile?.city ?? '';
+  profileState.value = profile?.state ?? '';
+  profileZip.value = profile?.zip ?? '';
+  profileLinkedin.value = profile?.linkedin ?? '';
+});
+
+saveProfileBtn.addEventListener('click', () => {
+  const profileInfo = {
+    name: profileName.value.trim(),
+    email: profileEmail.value.trim(),
+    phone: profilePhone.value.trim(),
+    address: profileAddress.value.trim(),
+    city: profileCity.value.trim(),
+    state: profileState.value.trim(),
+    zip: profileZip.value.trim(),
+    linkedin: profileLinkedin.value.trim(),
+  };
+
+  chrome.storage.local.set({ profileInfo }).then(() => {
+    profileStatus.textContent = 'Profile saved.';
+  });
+});
+
 // --- Writing Samples manager (Phase 5) ---
 // Category panels are generated dynamically from this list rather than
 // hand-written 7x in settings.html, to avoid near-duplicate markup drift.

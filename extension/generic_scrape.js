@@ -95,6 +95,53 @@ function scrapePageContent() {
     return bestScore > 0 ? best : null;
   }
 
+  function extractEmployer() {
+    const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+    for (const script of scripts) {
+      let data;
+      try {
+        data = JSON.parse(script.textContent);
+      } catch (e) {
+        continue;
+      }
+
+      const entries = [];
+      if (Array.isArray(data)) {
+        entries.push(...data);
+      } else if (data && typeof data === "object") {
+        if (Array.isArray(data["@graph"])) {
+          entries.push(...data["@graph"]);
+        }
+        entries.push(data);
+      }
+
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object") continue;
+        if (String(entry["@type"] || "").toLowerCase() !== "jobposting") continue;
+
+        const org = entry.hiringOrganization;
+        if (org && typeof org === "string" && org.trim()) {
+          return org.trim();
+        }
+        if (org && typeof org === "object" && org.name && typeof org.name === "string" && org.name.trim()) {
+          return org.name.trim();
+        }
+      }
+    }
+
+    // og:site_name is only trustworthy as an employer name on the company's
+    // own domain — on a known ATS/job-board host it resolves to the
+    // platform's own brand (e.g. "Greenhouse", "LinkedIn"), not the employer.
+    if (!isJobSite) {
+      const meta = document.querySelector('meta[property="og:site_name"]');
+      if (meta && meta.content && meta.content.trim()) {
+        return meta.content.trim();
+      }
+    }
+
+    return null;
+  }
+
   const title = document.title;
 
   // Known job boards get the loose bar (1 keyword match is enough — the
@@ -106,7 +153,7 @@ function scrapePageContent() {
     : findByKeywordScore(3);
 
   if (jobEl) {
-    return { title, text: cleanText(jobEl).slice(0, 20000), siteType: "job" };
+    return { title, text: cleanText(jobEl).slice(0, 20000), siteType: "job", employer: extractEmployer() };
   }
 
   const source =
@@ -114,5 +161,5 @@ function scrapePageContent() {
     document.querySelector("main") ||
     document.body;
 
-  return { title, text: cleanText(source).slice(0, 20000), siteType: "general" };
+  return { title, text: cleanText(source).slice(0, 20000), siteType: "general", employer: null };
 }
