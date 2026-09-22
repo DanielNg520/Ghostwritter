@@ -91,6 +91,35 @@ const employerInput = document.getElementById("employer-input");
 const promptInput = document.getElementById("prompt");
 const providerSelect = document.getElementById("provider-select");
 
+// Fetches the real category list from the same /samples endpoint used
+// elsewhere, and fills #category-select with it. Falls back to a plain
+// "Could not load categories" message when the server is unreachable.
+async function populateCategorySelect() {
+  try {
+    const res = await fetch("http://localhost:8000/samples");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const categories = Object.keys(data.categories).sort();
+    categorySelect.replaceChildren();
+
+    for (const category of categories) {
+      const option = document.createElement("option");
+      option.value = category;
+      option.textContent = capitalizeCategory(category);
+      categorySelect.appendChild(option);
+    }
+  } catch {
+    categorySelect.replaceChildren();
+    const option = document.createElement("option");
+    option.value = "";
+    option.disabled = true;
+    option.selected = true;
+    option.textContent = "Could not load categories — check the server";
+    categorySelect.appendChild(option);
+  }
+}
+
 // agy/claude_code are local CLIs, always usable. openrouter/groq/local need
 // credentials — either saved in this extension's Settings page, or (for
 // openrouter/groq only) a default from the server's encrypted secrets file.
@@ -188,7 +217,14 @@ async function detectJobPageAndConfigure() {
   }
 }
 
-detectJobPageAndConfigure();
+// Populate the real category list first so detectJobPageAndConfigure() can
+// reliably check for "cover_letter", then run the job-page detection.
+async function initPanel() {
+  await populateCategorySelect();
+  await detectJobPageAndConfigure();
+}
+
+initPanel();
 
 let currentMode = "review"; // "review" | "general"
 

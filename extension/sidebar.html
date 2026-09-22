@@ -35,14 +35,7 @@
   <div id="general-section" hidden>
     <label for="category-select">Category</label>
     <select id="category-select">
-      <option value="formal">Formal</option>
-      <option value="casual">Casual</option>
-      <option value="academic">Academic</option>
-      <option value="creative">Creative</option>
-      <option value="narrative">Narrative</option>
-      <option value="technical">Technical</option>
-      <option value="review">Review</option>
-      <option value="cover_letter">Cover Letter</option>
+      <option value="" disabled selected>Loading categories&hellip;</option>
     </select>
     <label for="employer-input">Employer</label>
     <input type="text" id="employer-input" placeholder="Employer name (auto-detected, editable)">
@@ -60,6 +53,7 @@
   <div id="status-message"></div>
   <button id="export-pdf-btn" hidden>Export as PDF</button>
   <script src="lib/jspdf.umd.min.js"></script>
+  <script src="lib/format.js"></script>
   <script src="generic_scrape.js"></script>
   <script src="sidebar.js"></script>
 </body>

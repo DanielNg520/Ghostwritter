@@ -1,11 +1,11 @@
 import json
 import os
 import re
-import shutil
 import subprocess
 import requests
 
 import secrets_loader
+from cli_path import resolve_cli_path
 
 SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR      = os.path.dirname(SCRIPT_DIR)
@@ -49,51 +49,28 @@ def sanitize_filename(name):
     clean = re.sub(r'\s+', ' ', clean).strip()
     return clean[:180] if len(clean) > 180 else clean
 
-def unique_review_path(product_title):
-    base = sanitize_filename(product_title)
-    candidate = os.path.join(REVIEW_DIR, f"{base}.txt")
+def _unique_path(directory, base):
+    """First non-colliding "<base>.txt" / "<base> (2).txt" / ... path in
+    `directory`. Shared by unique_review_path()/unique_writing_path(),
+    which only differ in which directory and how `base` gets computed."""
+    candidate = os.path.join(directory, f"{base}.txt")
     if not os.path.exists(candidate):
         return candidate
     index = 2
     while True:
-        candidate = os.path.join(REVIEW_DIR, f"{base} ({index}).txt")
+        candidate = os.path.join(directory, f"{base} ({index}).txt")
         if not os.path.exists(candidate):
             return candidate
         index += 1
+
+def unique_review_path(product_title):
+    return _unique_path(REVIEW_DIR, sanitize_filename(product_title))
 
 def unique_writing_path(slug):
     base = sanitize_filename(slug)[:80].strip() or "untitled"
-    candidate = os.path.join(WRITING_DIR, f"{base}.txt")
-    if not os.path.exists(candidate):
-        return candidate
-    index = 2
-    while True:
-        candidate = os.path.join(WRITING_DIR, f"{base} ({index}).txt")
-        if not os.path.exists(candidate):
-            return candidate
-        index += 1
+    return _unique_path(WRITING_DIR, base)
 
-# Chrome spawns native-messaging hosts (and, transitively, this managed
-# server) with a minimal PATH that doesn't include user-local install dirs
-# like ~/.local/bin — so a bare "agy" lookup that works fine from a normal
-# shell fails with FileNotFoundError when the server is launched via the
-# extension. Resolve the absolute path once, checking common user-local
-# install locations as a fallback when PATH lookup comes up empty.
-def _resolve_agy_path():
-    found = shutil.which("agy")
-    if found:
-        return found
-    for candidate in (
-        os.path.expanduser("~/.local/bin/agy"),
-        "/opt/homebrew/bin/agy",
-        "/usr/local/bin/agy",
-    ):
-        if os.path.isfile(candidate):
-            return candidate
-    return "agy"  # let subprocess.run raise a clear FileNotFoundError
-
-
-AGY_PATH = _resolve_agy_path()
+AGY_PATH = resolve_cli_path("agy")
 
 
 def _parse_agy_json(stdout):
@@ -141,22 +118,7 @@ def run_agy(prompt, model="gemini-3.7-pro", effort="low", timeout=300):
         return result.stdout.strip()
     return data.get("response", "").strip()
 
-# Same Chrome-native-messaging PATH problem as agy above.
-def _resolve_claude_path():
-    found = shutil.which("claude")
-    if found:
-        return found
-    for candidate in (
-        os.path.expanduser("~/.local/bin/claude"),
-        "/opt/homebrew/bin/claude",
-        "/usr/local/bin/claude",
-    ):
-        if os.path.isfile(candidate):
-            return candidate
-    return "claude"  # let subprocess.run raise a clear FileNotFoundError
-
-
-CLAUDE_PATH = _resolve_claude_path()
+CLAUDE_PATH = resolve_cli_path("claude")
 
 
 def run_claude_code(prompt, timeout=300):
@@ -171,12 +133,10 @@ def run_claude_code(prompt, timeout=300):
         return result.stdout.strip()
     return str(data.get("result", "")).strip()
 
-def call_openrouter(prompt, api_key, model, timeout=300):
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+# Shared by call_openrouter()/call_groq()/call_local(): all three are the
+# same OpenAI-compatible chat-completions shape, differing only in
+# url/headers/error label.
+def _call_chat_completions(url, headers, model, prompt, timeout, label):
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -185,49 +145,25 @@ def call_openrouter(prompt, api_key, model, timeout=300):
     response.raise_for_status()
     data = response.json()
     if not data.get("choices"):
-        raise RuntimeError(f"OpenRouter API returned no choices: {data}")
+        raise RuntimeError(f"{label} API returned no choices: {data}")
     content = data["choices"][0]["message"]["content"]
     if not content:
-        raise RuntimeError(f"OpenRouter API returned empty content: {data}")
+        raise RuntimeError(f"{label} API returned empty content: {data}")
     return content.strip()
 
+def call_openrouter(prompt, api_key, model, timeout=300):
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    return _call_chat_completions("https://openrouter.ai/api/v1/chat/completions", headers, model, prompt, timeout, "OpenRouter")
+
 def call_groq(prompt, api_key, model, timeout=300):
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    response = requests.post(url, headers=headers, json=payload, timeout=timeout)
-    response.raise_for_status()
-    data = response.json()
-    if not data.get("choices"):
-        raise RuntimeError(f"Groq API returned no choices: {data}")
-    content = data["choices"][0]["message"]["content"]
-    if not content:
-        raise RuntimeError(f"Groq API returned empty content: {data}")
-    return content.strip()
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    return _call_chat_completions("https://api.groq.com/openai/v1/chat/completions", headers, model, prompt, timeout, "Groq")
 
 def call_local(prompt, endpoint, model, api_key="", timeout=300):
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    response = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
-    response.raise_for_status()
-    data = response.json()
-    if not data.get("choices"):
-        raise RuntimeError(f"Local model API returned no choices: {data}")
-    content = data["choices"][0]["message"]["content"]
-    if not content:
-        raise RuntimeError(f"Local model API returned empty content: {data}")
-    return content.strip()
+    return _call_chat_completions(endpoint, headers, model, prompt, timeout, "Local model")
 
 def is_external_provider(provider):
     return provider in ("openrouter", "groq", "local")
@@ -257,7 +193,11 @@ class ProviderCallError(Exception):
     (auth error, network error, bad response) — this does NOT fall back to
     agy silently; the caller (server.py) surfaces it as a real error."""
 
-def generate_review_text(prompt, provider, api_key, model, endpoint=""):
+# Shared by generate_review_text()/ai_score(): both need to route a prompt
+# to whichever backend `provider` names. agy_effort is None for the full
+# generation path (run_agy()'s own default) and "low" for ai_score()'s
+# cheap/fast default-agy call.
+def _dispatch_to_provider(prompt, provider, api_key, model, endpoint, agy_effort=None):
     if provider == "claude_code":
         return run_claude_code(prompt)
     if provider in ("openrouter", "groq", "local") and provider_configured(provider, api_key, model, endpoint):
@@ -272,7 +212,10 @@ def generate_review_text(prompt, provider, api_key, model, endpoint=""):
     # agy (the default), or an external provider left unconfigured — the
     # unconfigured case is surfaced separately as a provider_warning by the
     # caller, with agy as the documented fallback.
-    return run_agy(prompt)
+    return run_agy(prompt, effort=agy_effort) if agy_effort else run_agy(prompt)
+
+def generate_review_text(prompt, provider, api_key, model, endpoint=""):
+    return _dispatch_to_provider(prompt, provider, api_key, model, endpoint)
 
 def ai_score(text, provider="agy", api_key="", model="", endpoint=""):
     """
@@ -285,17 +228,7 @@ def ai_score(text, provider="agy", api_key="", model="", endpoint=""):
         "No explanation.\n\nText:\n" + text
     )
     try:
-        if provider == "claude_code":
-            response = run_claude_code(prompt)
-        elif provider_configured(provider, api_key, model, endpoint):
-            if provider == "openrouter":
-                response = call_openrouter(prompt, api_key, model)
-            elif provider == "groq":
-                response = call_groq(prompt, api_key, model)
-            else:
-                response = call_local(prompt, endpoint, model, api_key)
-        else:
-            response = run_agy(prompt, effort="low")   # fast/cheap call
+        response = _dispatch_to_provider(prompt, provider, api_key, model, endpoint, agy_effort="low")
     except Exception as exc:
         print(f"  [warn] ai_score failed ({exc}), skipping refinement for this review")
         return 0

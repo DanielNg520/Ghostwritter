@@ -214,9 +214,21 @@ function scrapePageContent() {
     // Generic nav labels ("Company", "About") happen to share that same
     // path shape (e.g. a top-nav link to "/company") without naming the
     // employer at all, so those are rejected via the shared check above.
+    //
+    // A "Similar jobs"/"Related"/"People also viewed" section commonly
+    // links to OTHER companies' profiles, not this posting's -- once we
+    // cross that boundary heading, stop considering links at all (a
+    // wrong guess here would otherwise win by just appearing first).
+    const SECTION_BOUNDARY_PATTERN = /^(similar|related|other) jobs?$|^people also viewed$|^(you (might|may) (also )?like|more jobs (at|from) this employer|jobs? you (might|may) like)$/i;
+    const boundaryHeading = Array.from(document.querySelectorAll('h1, h2, h3, h4, [role="heading"]'))
+      .find((h) => SECTION_BOUNDARY_PATTERN.test((h.textContent || "").trim()));
+
     const PROFILE_PATH_PATTERN = /\/(company|companies|employer|employers|org|organizations|cmp)\//i;
     const links = document.querySelectorAll("a");
     for (const link of links) {
+      if (boundaryHeading && (boundaryHeading.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        break; // link is at/after the boundary heading -- links from here on are for other postings
+      }
       const href = link.href;
       if (!href || !PROFILE_PATH_PATTERN.test(href)) continue;
       const text = (link.textContent || "").trim();
@@ -225,14 +237,16 @@ function scrapePageContent() {
       }
     }
 
-    // og:site_name gated by value: skip known job-board/ATS/platform brands
-    // (word-boundary match, not raw substring -- ".includes('dice')" would
-    // wrongly reject a real employer like "Dicerna Pharmaceuticals"; a
-    // single-word brand that's also an ordinary English word, e.g.
-    // "Monster"/"Dice", can still collide with a real company name that
-    // happens to use the same whole word -- an accepted, low-probability
-    // edge this heuristic can't resolve without external host info), and
-    // reject bare generic values ("Careers", "Jobs") via the shared check.
+    // og:site_name gated by value: skip known job-board/ATS/platform brands,
+    // but only when the value IS (essentially) just the brand -- anchored to
+    // the whole string plus an optional generic suffix ("Monster",
+    // "Monster.com", "Monster Jobs", "Greenhouse Job Board" all reject) so a
+    // brand word merely appearing inside a longer, clearly-different company
+    // name doesn't ("Dicerna Pharmaceuticals", "Monster Beverage" both pass
+    // through). A brand-prefixed compound like "Workday - Acme Corp" still
+    // isn't anchored-matched, so it's returned as-is rather than rejected --
+    // imperfect (the prefix is noise) but editable, versus null forcing a
+    // retype from scratch.
     const PLATFORM_BRANDS = [
       "linkedin", "handshake", "indeed", "glassdoor", "greenhouse",
       "lever", "workday", "ziprecruiter", "wellfound", "angellist",
@@ -244,7 +258,9 @@ function scrapePageContent() {
     if (meta && meta.content && meta.content.trim()) {
       const siteName = meta.content.trim();
       const siteNameLower = siteName.toLowerCase();
-      const isPlatformBrand = PLATFORM_BRANDS.some((brand) => new RegExp(`\\b${brand}\\b`).test(siteNameLower));
+      const isPlatformBrand = PLATFORM_BRANDS.some((brand) =>
+        new RegExp(`^${brand}\\s*[|·:-]?\\s*(jobs?|careers?|job\\s*board|\\.com)?$`, "i").test(siteNameLower)
+      );
       if (!isPlatformBrand && !isGenericLabel(siteName)) {
         return siteName;
       }

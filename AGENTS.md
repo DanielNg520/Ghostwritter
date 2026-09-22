@@ -72,24 +72,53 @@ Read this file first. Update it after every implementation change.
     upload/delete per category, and a Profile section (`profileInfo` in
     `chrome.storage.local`: name/email/phone/address/city/state/zip/
     linkedin) used to fill in the sender block on exported cover letters.
+    Sample-category panels are built from `GET /samples`'s real category
+    list (`buildCategoryPanels()`, called once the first fetch resolves),
+    not a hardcoded array — a new `workspace/sample/<name>/` folder shows
+    up with zero code changes.
+  - `sidebar.js`'s `#category-select` is populated the same way
+    (`populateCategorySelect()`, awaited before `detectJobPageAndConfigure()`
+    so its `cover_letter` auto-select check has real options to find).
   - `lib/jspdf.umd.min.js` — vendored jsPDF 2.5.2 UMD build (MV3 CSP forbids
     loading it from a CDN). Loaded before `generic_scrape.js`/`sidebar.js`
     in `sidebar.html`, exposes the global `jspdf.jsPDF`.
+  - `lib/format.js` — `capitalizeCategory(word)` ("cover_letter" -> "Cover
+    Letter"), shared by `settings.js` and `sidebar.js` instead of each
+    defining its own copy.
 - **server/** — local FastAPI server (`localhost:8000`), spawned on demand by
   the native host, not run standalone by the user.
   - `server.py` — routes: `/generate-review/*`, `/generate-writing/*`
     (both job-queue style: `/start` returns a `job_id`, poll `/progress/{id}`
     for `{stage, attempt, max_attempts, done}`), `/provider-defaults`,
-    sample list/upload/delete.
+    sample list/upload/delete. `_run_review_job()`/`_run_writing_job()` are
+    both thin wrappers around one shared `_run_generation_job()` (resolve
+    credentials -> samples -> generate -> score -> refine loop -> write
+    output), supplying only their own samples category, prompt builder, and
+    output path/result key — used to be two independently hand-maintained
+    ~55-line copies of the same pipeline.
   - `review_engine.py` — prompt building, provider dispatch (agy CLI,
     Claude Code CLI, OpenRouter, Groq, local endpoint), AI-detection scoring
-    + rewrite loop, writing-sample loading. `SAMPLE_CATEGORIES` is the
-    whitelist of style categories — each is a real directory under
-    `workspace/sample/<category>/` and doubles as the extension's category
-    dropdown values. Adding a category = adding a tuple entry + a folder.
+    + rewrite loop, writing-sample loading. `SAMPLE_CATEGORIES` is the one
+    source of truth for style categories — each is a real directory under
+    `workspace/sample/<category>/`; the extension's category dropdown and
+    Settings sample panels both derive from it live via `GET /samples`
+    (see `extension/settings.js`/`sidebar.js` below), not a hardcoded copy.
+    Adding a category = adding a tuple entry + a folder, two places, not
+    four. `call_openrouter()`/`call_groq()`/`call_local()` all share one
+    `_call_chat_completions()` (same OpenAI-compatible shape, different
+    url/headers). `generate_review_text()`/`ai_score()` share one
+    `_dispatch_to_provider()` for the claude_code/openrouter/groq/local/agy
+    routing (only `ai_score()` passes `agy_effort="low"`).
+    `unique_review_path()`/`unique_writing_path()` share `_unique_path()`.
   - `secrets_loader.py` — decrypts `config/secrets.enc.yaml` via sops/age for
     default OpenRouter/Groq credentials (used when the extension's own
     Settings page hasn't been filled in).
+  - `cli_path.py` — `resolve_cli_path(name)`: Chrome spawns native-messaging
+    hosts (and this managed server) with a minimal PATH missing
+    `~/.local/bin`/Homebrew, so a bare CLI lookup (`agy`, `claude`, `sops`)
+    that works from a shell fails under the extension. Shared by
+    `review_engine.py` (agy/claude) and `secrets_loader.py` (sops) — used
+    to be 3 separately hand-written copies of the same fallback logic.
 - **native-host/host.py** — native messaging host Chrome spawns; ensures
   `server/server.py` is running (`--managed` mode), replies `{"status":
   "ready"}`, then blocks on stdin until the extension disconnects.
@@ -112,11 +141,12 @@ Read this file first. Update it after every implementation change.
   and run in the page's own context. Nested helper functions inside them
   are fine.
 - New style/voice categories: add to `SAMPLE_CATEGORIES` in
-  `server/review_engine.py` + create `workspace/sample/<name>/.gitkeep` +
-  add an `<option>` in `sidebar.html`'s `#category-select` + add the name to
-  `settings.js`'s own (separately hardcoded, not shared) `SAMPLE_CATEGORIES`
-  array so the sample-manager UI gets a panel. Four places, not three — the
-  `cover_letter` addition missed `settings.js` the first time.
+  `server/review_engine.py` + create `workspace/sample/<name>/.gitkeep`.
+  Two places, not four — `sidebar.html`'s `#category-select` and
+  `settings.js`'s sample panels both derive from `GET /samples` live now
+  (this used to be two more hand-copied lists; the `cover_letter` addition
+  once missed one of them and shipped a category with no upload panel —
+  that whole bug class is now structurally impossible, not just documented).
 - External provider calls never silently fall back to agy on failure — they
   raise `ProviderCallError` so the UI surfaces the real error instead of
   masking a misconfigured API key.
@@ -134,13 +164,23 @@ Read this file first. Update it after every implementation change.
 ## Test / run commands
 
 - `tests/browser/smoke_test.py` — the extension's automated test suite
-  (`extractEmployer()`'s heuristics, Settings Profile round-trip, PDF
-  export/pagination/filename, panel tab-binding, cross-tab isolation).
-  `pip install -r tests/requirements-dev.txt && playwright install
-  chromium`, then `python3 tests/browser/smoke_test.py` — self-contained
-  (starts its own local fixture server, launches a throwaway Chromium
-  profile with the unpacked extension, no manual setup). Fixtures live in
-  `tests/browser/fixtures/`. No unit-test suite for `server/`.
+  (`extractEmployer()`'s heuristics, Settings Profile round-trip,
+  category-select/sample-panel population, PDF export/pagination/filename,
+  panel tab-binding, cross-tab isolation). `pip install -r
+  tests/requirements-dev.txt && playwright install chromium`, then start
+  the server (`cd server && ../.venv/bin/python3 server.py`) — category-
+  select/sample panels are now fetched live, so this isn't fully self-
+  hosting the way it starts its own fixture server for the job-posting
+  pages — then `python3 tests/browser/smoke_test.py`. Fails fast with a
+  clear message if the server isn't reachable. Fixtures live in
+  `tests/browser/fixtures/`.
+- `tests/server/` — Python `unittest` suite for `review_engine.py`/
+  `server.py`/`secrets_loader.py`/`cli_path.py` (provider dispatch,
+  `call_*` chat-completions shape, `_run_generation_job()`'s pipeline,
+  `unique_*_path()`, `resolve_cli_path()`). No server process or real
+  agy/claude/sops needed — everything's mocked. `python3 -m unittest
+  discover -s tests/server -v` from the repo root (needs `.venv`'s
+  `fastapi`/`requests` — use `.venv/bin/python3`).
 - `./setup.sh` — cross-platform install/package script.
 - `./reload-extension.sh` — reload the unpacked extension in Chrome during dev.
 - `./package.sh` — package the extension for distribution.
@@ -150,6 +190,55 @@ Read this file first. Update it after every implementation change.
   native host. For direct debugging: `python server/server.py` from `server/`.
 
 ## Carryover
+
+- 2026-09-22 (done): codebase-wide reuse audit per the user's global
+  "no blind addition" code policy (`~/.claude/CLAUDE.md`, "prefer reuse
+  over new primitives") — the concrete prompt was noticing that
+  `extractEmployer()`'s stoplists kept needing a new patch every audit
+  round, plus explicitly reviewing whether the rest of the codebase had
+  the same "add this here, add that there" pattern. It did. Fixed:
+  (1) `server.py`'s `_run_review_job()`/`_run_writing_job()` were two
+  independently hand-maintained ~55-line copies of the identical resolve-
+  credentials -> samples -> generate -> score -> refine-loop -> write
+  pipeline (only the samples category/prompt-builder/output differed) —
+  now both thin wrappers around one `_run_generation_job()`. (2)
+  `review_engine.py`'s `call_openrouter()`/`call_groq()`/`call_local()`
+  were the same OpenAI-compatible chat-completions shape written 3 times
+  — now one `_call_chat_completions()`. (3) `generate_review_text()` and
+  `ai_score()` each reimplemented the same provider-routing branch —
+  now one shared `_dispatch_to_provider()`. (4)
+  `unique_review_path()`/`unique_writing_path()` shared logic — now one
+  `_unique_path()`. (5) `_resolve_agy_path()`/`_resolve_claude_path()`
+  (review_engine.py) and `_resolve_sops_path()` (secrets_loader.py) were
+  3 copies of the same Chrome-minimal-PATH fallback logic across 2
+  files — now one `cli_path.resolve_cli_path()`. (6) The actual root
+  cause of the `cover_letter`-missed-a-panel bug from 2026-09-21 (see
+  below): `SAMPLE_CATEGORIES` was duplicated between
+  `review_engine.py` and a second hardcoded array in `settings.js` —
+  fixed at the root instead of documented as a footgun again:
+  `settings.js`/`sidebar.js` now both derive the category list from
+  `GET /samples` live (`extension/lib/format.js` added so both share one
+  `capitalizeCategory()` instead of each defining its own). Verified by
+  creating a brand-new `workspace/sample/poetry/` folder with zero code
+  changes and confirming it appeared in both the Settings panel list and
+  the sidebar's category dropdown (including the `cover_letter`
+  auto-select flow still finding it correctly), then removing it.
+  All Python refactors are pure consolidations (mocked, behavior-
+  preserving) verified by 28 new `tests/server/` unittest cases (server
+  process not required); the category-dedup change verified end-to-end
+  against the real running server. Also applied the two `extractEmployer()`
+  refinements flagged as accepted-but-fixable in the entry below: the
+  profile-link heuristic now stops scanning at a "Similar jobs"/"Related"/
+  "People also viewed" boundary heading instead of picking up the first
+  matching link anywhere on the page; `PLATFORM_BRANDS` now anchors to
+  "the whole value is just the brand (+ an optional generic suffix)"
+  instead of "the brand appears anywhere as a whole word" — fixes
+  "Monster Beverage" (real company) while still rejecting "Monster Jobs"/
+  bare "Monster". `tests/browser/smoke_test.py` grew from 26 to 29 checks
+  for these two. **Note for future sessions:** the browser suite now
+  needs the real server running (`cd server && ../.venv/bin/python3
+  server.py`) for the category-select/sample-panel checks — it fails
+  fast with a clear message if it isn't, see Test/run commands above.
 
 - 2026-09-22 (done): a high-effort audit found 4 more real precision gaps
   in `extractEmployer()`, hand-fixed directly: (1) removing "careers"/

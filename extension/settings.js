@@ -104,55 +104,72 @@ saveProfileBtn.addEventListener('click', () => {
 });
 
 // --- Writing Samples manager (Phase 5) ---
-// Category panels are generated dynamically from this list rather than
-// hand-written 7x in settings.html, to avoid near-duplicate markup drift.
-const SAMPLE_CATEGORIES = [
-  'formal',
-  'casual',
-  'academic',
-  'creative',
-  'narrative',
-  'technical',
-  'review',
-  'cover_letter',
-];
+// Category panels are generated dynamically from the server's category
+// list rather than hand-written 7x in settings.html, to avoid
+// near-duplicate markup drift.
 
 const SAMPLES_API = 'http://localhost:8000/samples';
 
 const samplesSection = document.getElementById('samples-section');
 const samplesStatus = document.getElementById('samples-status');
 
-// "cover_letter" -> "Cover Letter". All prior categories were single
-// words, so a plain capitalize() never had to handle the underscore case.
-function capitalize(word) {
-  return word
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
+function buildCategoryPanels(categories) {
+  categories.forEach((category) => {
+    const panel = document.createElement('div');
+    panel.className = 'sample-panel';
+    panel.innerHTML = `
+      <h2>${capitalizeCategory(category)}</h2>
+      <ul id="samples-list-${category}" class="samples-list"></ul>
+      <div class="sample-upload-row">
+        <label for="sample-file-${category}">Upload file (.txt or .md)</label>
+        <input type="file" id="sample-file-${category}" accept=".txt,.md" data-category="${category}">
+      </div>
+      <div class="sample-paste-row">
+        <label for="sample-name-${category}">Sample name</label>
+        <input type="text" id="sample-name-${category}" placeholder="Sample name" data-category="${category}" class="sample-name-input">
+        <label for="sample-text-${category}">Paste text</label>
+        <textarea id="sample-text-${category}" placeholder="Paste sample text here..." data-category="${category}" class="sample-text-input"></textarea>
+        <button type="button" data-category="${category}" class="add-sample-btn">Add Sample</button>
+      </div>
+      <div class="sample-panel-message" id="sample-message-${category}"></div>
+    `;
+    samplesSection.appendChild(panel);
 
-// Build the static per-category panel markup once.
-SAMPLE_CATEGORIES.forEach((category) => {
-  const panel = document.createElement('div');
-  panel.className = 'sample-panel';
-  panel.innerHTML = `
-    <h2>${capitalize(category)}</h2>
-    <ul id="samples-list-${category}" class="samples-list"></ul>
-    <div class="sample-upload-row">
-      <label for="sample-file-${category}">Upload file (.txt or .md)</label>
-      <input type="file" id="sample-file-${category}" accept=".txt,.md" data-category="${category}">
-    </div>
-    <div class="sample-paste-row">
-      <label for="sample-name-${category}">Sample name</label>
-      <input type="text" id="sample-name-${category}" placeholder="Sample name" data-category="${category}" class="sample-name-input">
-      <label for="sample-text-${category}">Paste text</label>
-      <textarea id="sample-text-${category}" placeholder="Paste sample text here..." data-category="${category}" class="sample-text-input"></textarea>
-      <button type="button" data-category="${category}" class="add-sample-btn">Add Sample</button>
-    </div>
-    <div class="sample-panel-message" id="sample-message-${category}"></div>
-  `;
-  samplesSection.appendChild(panel);
-});
+    const fileInput = document.getElementById(`sample-file-${category}`);
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) {
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = async () => {
+        await addSample(category, file.name, reader.result);
+        fileInput.value = '';
+      };
+      reader.readAsText(file);
+    });
+
+    const addBtn = document.querySelector(`.add-sample-btn[data-category="${category}"]`);
+    addBtn.addEventListener('click', async () => {
+      const nameInput = document.getElementById(`sample-name-${category}`);
+      const textInput = document.getElementById(`sample-text-${category}`);
+      const filename = nameInput.value.trim();
+      const content = textInput.value.trim();
+
+      if (!filename || !content) {
+        setSampleMessage(category, 'Please provide both a sample name and some text.');
+        return;
+      }
+
+      setSampleMessage(category, '');
+      const ok = await addSample(category, filename, content);
+      if (ok) {
+        nameInput.value = '';
+        textInput.value = '';
+      }
+    });
+  });
+}
 
 function renderSampleList(category, filenames) {
   const list = document.getElementById(`samples-list-${category}`);
@@ -192,7 +209,9 @@ async function loadAllSamples() {
     }
     const data = await response.json();
     const categories = data.categories || {};
-    SAMPLE_CATEGORIES.forEach((category) => {
+    const categoryNames = Object.keys(categories).sort();
+    buildCategoryPanels(categoryNames);
+    categoryNames.forEach((category) => {
       renderSampleList(category, categories[category] || []);
     });
     samplesStatus.textContent = '';
@@ -256,45 +275,5 @@ async function addSample(category, filename, content) {
     return false;
   }
 }
-
-// Wire file inputs.
-SAMPLE_CATEGORIES.forEach((category) => {
-  const fileInput = document.getElementById(`sample-file-${category}`);
-  fileInput.addEventListener('change', () => {
-    const file = fileInput.files[0];
-    if (!file) {
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      await addSample(category, file.name, reader.result);
-      fileInput.value = '';
-    };
-    reader.readAsText(file);
-  });
-});
-
-// Wire "Add Sample" buttons for pasted text.
-document.querySelectorAll('.add-sample-btn').forEach((btn) => {
-  btn.addEventListener('click', async () => {
-    const category = btn.dataset.category;
-    const nameInput = document.getElementById(`sample-name-${category}`);
-    const textInput = document.getElementById(`sample-text-${category}`);
-    const filename = nameInput.value.trim();
-    const content = textInput.value.trim();
-
-    if (!filename || !content) {
-      setSampleMessage(category, 'Please provide both a sample name and some text.');
-      return;
-    }
-
-    setSampleMessage(category, '');
-    const ok = await addSample(category, filename, content);
-    if (ok) {
-      nameInput.value = '';
-      textInput.value = '';
-    }
-  });
-});
 
 loadAllSamples();

@@ -11,27 +11,15 @@ when non-empty — see review_engine.resolve_credentials().
 
 import json
 import os
-import shutil
 import subprocess
 from pathlib import Path
+
+from cli_path import resolve_cli_path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SECRETS_PATH = REPO_ROOT / "config" / "secrets.enc.yaml"
 SOPS_CONFIG_PATH = REPO_ROOT / ".sops.yaml"
 DEFAULT_AGE_KEY_FILE = Path.home() / ".config" / "sops" / "age" / "keys.txt"
-
-
-def _resolve_sops_path():
-    """Chrome spawns native-messaging hosts (and this managed server) with a
-    minimal PATH that may not include Homebrew's /opt/homebrew/bin — same
-    issue as review_engine's agy/claude path resolution."""
-    found = shutil.which("sops")
-    if found:
-        return found
-    for candidate in ("/opt/homebrew/bin/sops", "/usr/local/bin/sops"):
-        if Path(candidate).is_file():
-            return candidate
-    return "sops"
 
 
 def load_secrets():
@@ -52,7 +40,7 @@ def load_secrets():
 
     try:
         result = subprocess.run(
-            [_resolve_sops_path(), "--config", str(SOPS_CONFIG_PATH), "-d", "--output-type", "json", str(SECRETS_PATH)],
+            [resolve_cli_path("sops", include_local_bin=False), "--config", str(SOPS_CONFIG_PATH), "-d", "--output-type", "json", str(SECRETS_PATH)],
             capture_output=True,
             text=True,
             check=True,

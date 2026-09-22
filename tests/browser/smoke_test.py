@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """Extension smoke tests, run against a real unpacked Chromium instance.
 
-No automated *unit* test suite exists for this repo (there's no framework
-worth the weight for two small extension files + a FastAPI server) -- this
-covers what actually breaks silently: extractEmployer()'s heuristics
-(generic_scrape.js), the Settings Profile round-trip, cover-letter PDF
-export, and the per-tab panel binding (sidebar.js/background.js).
+Covers what actually breaks silently: extractEmployer()'s heuristics
+(generic_scrape.js), the Settings Profile round-trip, category-select /
+sample-panel population (both now sourced live from the server, not a
+hardcoded list -- see tests/server/'s own suite for that server-side half),
+cover-letter PDF export, and the per-tab panel binding
+(sidebar.js/background.js).
 
-Requires: pip install playwright && playwright install chromium
-Run:      python3 tests/browser/smoke_test.py
+Requires:
+  1. pip install -r tests/requirements-dev.txt && playwright install chromium
+  2. The Ghost Writer server running at localhost:8000 (e.g. `python3
+     server/server.py` from server/, in the .venv that has its
+     requirements.txt installed) -- category-select and the Settings
+     sample panels are now fetched live from it, not hardcoded, so this
+     suite can't fully self-host that part the way it does the fixture
+     pages below.
+Run: python3 tests/browser/smoke_test.py
 
 Starts its own local HTTP server for the fixtures/ pages (some checks need
 a real host the manifest grants -- http://localhost/* -- to exercise the
 actual chrome.scripting.executeScript call path, not just a direct
-function eval). Fully self-contained; no manual server startup needed.
+function eval).
 """
 
 import base64
@@ -23,6 +31,8 @@ import json
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -59,7 +69,22 @@ def start_fixture_server():
     return httpd
 
 
+def check_ghostwriter_server_running():
+    """category-select/the Settings sample panels are now fetched live from
+    the real server rather than hardcoded -- fail fast with a clear message
+    instead of a confusing mid-run Playwright timeout if it's not up."""
+    try:
+        urllib.request.urlopen("http://localhost:8000/health", timeout=2)
+    except (urllib.error.URLError, ConnectionError):
+        print(
+            "[ERROR] Ghost Writer server isn't reachable at localhost:8000.\n"
+            "        Start it first: cd server && ../.venv/bin/python3 server.py"
+        )
+        sys.exit(1)
+
+
 def main():
+    check_ghostwriter_server_running()
     httpd = start_fixture_server()
     ext_id = extension_id()
     scrape_src = (EXT_DIR / "generic_scrape.js").read_text()
@@ -121,6 +146,15 @@ def main():
 
         r = scrape("fake_job_decorated_navlink.html")
         check("decorated nav link ('Company ›') rejected", r.get("employer") == "Summit Consulting Group", r.get("employer"))
+
+        r = scrape("fake_job_similar_jobs_boundary.html")
+        check("profile-link scan stops at a 'Similar jobs' boundary", r.get("employer") == "Parallax Logistics", r.get("employer"))
+
+        r = scrape("fake_job_monster_beverage.html")
+        check("og:site_name accepted ('Monster Beverage', brand word inside a distinct company name)", r.get("employer") == "Monster Beverage", r.get("employer"))
+
+        r = scrape("fake_job_monster_bare.html")
+        check("og:site_name rejected ('Monster Jobs', brand + generic suffix, anchored)", r.get("employer") is None, r.get("employer"))
 
         # ---- settings.html: Profile save/load round-trip ----
         settings = ctx.new_page()
