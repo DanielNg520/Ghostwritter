@@ -642,8 +642,8 @@ Read this file first. Update it after every implementation change.
     shown when relevant to the current mode, not all-always-visible),
     a guided workflow indicator (what step you're on, what's next),
     consistent with the existing "topographic" visual identity already
-    chosen for this sidebar (see the 2026-09-xx sidebar redesign commit
-    in git log). **Do this last** — see Sequencing above.
+    chosen for this sidebar (commit `78dc478`, 2026-09-17). **Do this
+    last** — see Sequencing above.
 
 - **Next item (not started): nvim creative-writing flow.** Cursor
   Ctrl-K/Ctrl-I-style in-editor agent call for nvim — finish writing, hit a
