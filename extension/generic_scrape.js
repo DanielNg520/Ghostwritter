@@ -152,25 +152,37 @@ function scrapePageContent() {
       const label = (heading.textContent || "").trim().toLowerCase();
       if (!ABOUT_LABELS.has(label)) continue;
 
-      // Check next siblings, plus heading/link elements that immediately
-      // follow within the same parent container.
-      let candidates = [];
-      let sibling = heading.nextElementSibling;
-      while (sibling && candidates.length < 3) {
-        candidates.push(sibling);
-        sibling = sibling.nextElementSibling;
-      }
+      // Common action-button/status labels that can sit right next to an
+      // "About the employer" heading (Follow, Verified, Apply, ...) without
+      // naming the employer at all.
+      const BADGE_LABELS = new Set([
+        "follow", "following", "unfollow", "verified", "save", "saved",
+        "share", "apply", "connect", "message"
+      ]);
+
+      // Heading/link elements within the same parent are a much stronger
+      // signal than an arbitrary next sibling (which is as likely to be a
+      // badge or button as the actual company name), so they're tried
+      // first; the plain sibling walk is only a lower-confidence fallback.
+      let strongCandidates = [];
       if (heading.parentElement && heading.parentElement !== heading) {
         const following = Array.from(heading.parentElement.querySelectorAll('h1, h2, h3, h4, [role="heading"], a'));
         const idx = following.indexOf(heading);
         for (let i = idx + 1; i < Math.min(idx + 4, following.length); i++) {
-          candidates.push(following[i]);
+          strongCandidates.push(following[i]);
         }
       }
 
-      for (const candidate of candidates) {
+      let weakCandidates = [];
+      let sibling = heading.nextElementSibling;
+      while (sibling && weakCandidates.length < 3) {
+        weakCandidates.push(sibling);
+        sibling = sibling.nextElementSibling;
+      }
+
+      for (const candidate of [...strongCandidates, ...weakCandidates]) {
         const text = (candidate.textContent || "").trim();
-        if (text && text.length <= 100) {
+        if (text && text.length <= 100 && !BADGE_LABELS.has(text.toLowerCase())) {
           return text;
         }
       }
@@ -178,13 +190,20 @@ function scrapePageContent() {
 
     // Links to company-profile pages — boards commonly link the employer's
     // name to a URL with a predictable path shape across many platforms.
+    // Generic nav labels ("Company", "About") happen to share that same
+    // path shape (e.g. a top-nav link to "/company") without naming the
+    // employer at all, so those exact labels are rejected outright.
+    const GENERIC_LINK_LABELS = new Set([
+      "company", "companies", "about", "about us", "home",
+      "employer", "employers", "careers", "jobs"
+    ]);
     const PROFILE_PATH_PATTERN = /\/(company|companies|employer|employers|org|organizations|cmp)\//i;
     const links = document.querySelectorAll("a");
     for (const link of links) {
       const href = link.href;
       if (!href || !PROFILE_PATH_PATTERN.test(href)) continue;
       const text = (link.textContent || "").trim();
-      if (text && text.length <= 100) {
+      if (text && text.length <= 100 && !GENERIC_LINK_LABELS.has(text.toLowerCase())) {
         return text;
       }
     }
@@ -195,8 +214,7 @@ function scrapePageContent() {
       "lever", "workday", "ziprecruiter", "wellfound", "angellist",
       "ashby", "smartrecruiters", "icims", "taleo", "simplify",
       "monster", "dice", "workable", "bamboohr", "breezy", "jazzhr",
-      "recruitee", "personio", "teamtailor", "jobvite", "comeet",
-      "careers", "jobs"
+      "recruitee", "personio", "teamtailor", "jobvite", "comeet"
     ]);
     const meta = document.querySelector('meta[property="og:site_name"]');
     if (meta && meta.content && meta.content.trim()) {

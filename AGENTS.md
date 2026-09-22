@@ -144,6 +144,25 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
+- 2026-09-22 (done): a medium-effort audit of the universal-employer-
+  heuristic work below found 3 more precision gaps, hand-fixed directly:
+  (1) `PLATFORM_BRANDS` included bare "careers"/"jobs" words, so a
+  legitimate corporate career page's `og:site_name` (e.g. "Acme
+  Careers" — an extremely common convention) was wrongly rejected as a
+  platform brand via substring match, a real regression versus the old
+  behavior; removed both entries. (2) The company-profile-link heuristic
+  could return generic nav-link text ("Company", "About", "Home") that
+  happens to share the same URL path shape without naming the employer
+  at all; added a `GENERIC_LINK_LABELS` stoplist. (3) The "About the
+  employer" heading heuristic's candidate scan checked plain next-
+  siblings before heading/link elements, so a badge/button
+  ("Follow", "Verified") sitting between the heading and the real name
+  could win; reordered to try heading/link candidates (higher-confidence)
+  first, with a small `BADGE_LABELS` stoplist as a second guard.
+  Re-verified with 2 new Playwright regression cases (a legit "X
+  Careers" og:site_name, and a nav-link/badge false-positive page) plus
+  the full existing suite (30 checks) — all pass.
+
 - 2026-09-22 (done, dispatched via TriAPI): replaced the host-gated
   `og:site_name` employer fallback with a universal, heuristic approach
   that needs no per-site list. `extractEmployer()` in `generic_scrape.js`
