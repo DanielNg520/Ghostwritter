@@ -38,13 +38,15 @@ Read this file first. Update it after every implementation change.
     a platform's own brand leaking through as the "employer".
   - `sidebar.js` / `sidebar.html` — the panel UI. Reads its own bound tab id
     from `location.search` (`?tabId=<id>`, set by `background.js`) into
-    `boundTabId`; `scrapeActiveTab()`/`generateReview()` target that id
-    directly instead of querying whichever tab is currently active/focused,
-    so the panel always acts on the tab it was opened from — switching tabs
-    while it's open does not change what it reads. A panel opened without
-    that param (e.g. hit directly, not via the toolbar click) has
-    `boundTabId === null`: `scrapeActiveTab()` returns `null` and
-    `generateReview()` throws instead of guessing a tab. Two modes:
+    `boundTabId`; `scrapeActiveTab()`/`generateReview()` resolve their
+    target tab through the shared `resolveTargetTabId()` (`boundTabId` if
+    set, else falls back to `chrome.tabs.query({active, currentWindow})`)
+    instead of each doing its own ad-hoc lookup — so a properly-bound panel
+    always acts on the tab it was opened from (switching tabs while it's
+    open does not change what it reads), while a panel that ended up
+    without a `?tabId=` (most commonly Chrome restoring a previously-open
+    panel on browser relaunch, which doesn't replay the toolbar click)
+    still works via the fallback instead of going inert. Two modes:
     **Review** (Amazon) and **General Writer** (any page + free-form prompt
     + a style "category" that pulls matching writing samples). On panel
     open, `detectJobPageAndConfigure()` best-effort-scripts the bound tab; if
@@ -190,6 +192,36 @@ Read this file first. Update it after every implementation change.
   native host. For direct debugging: `python server/server.py` from `server/`.
 
 ## Carryover
+
+- 2026-09-22 (done, user-reported): the tab-scoping fix's strict
+  "`boundTabId === null` -> refuse to act at all" design (see the
+  tab-scoping entry below) was a real regression the user hit directly:
+  Chrome restoring a previously-open panel on relaunch (e.g. after
+  `./reload-extension.sh`) doesn't replay the toolbar click, so the
+  restored panel had no `?tabId=` and went completely inert — breaking
+  **Product Review mode**, pre-existing functionality unrelated to any
+  of this session's new features, not just an edge case in the new
+  employer-detection work. Root cause: a Chrome-API limitation, not a
+  bug to patch around per call site — a restored side panel has no
+  reliable way for `background.js` to re-derive which tab it belongs to
+  (`chrome.runtime.onConnect`'s port carries no `sender.tab` for an
+  extension-page connection, only for content-script ones), so the
+  binding genuinely cannot be recovered after restoration. Fixed with
+  one shared `resolveTargetTabId()` (returns `boundTabId` if set, else
+  falls back to `chrome.tabs.query({active, currentWindow})` — the same
+  lookup this file used everywhere before tab-scoping existed) that
+  `scrapeActiveTab()`/`generateReview()` both funnel through, replacing
+  two separate ad-hoc `boundTabId === null` checks — not two special
+  cases patched independently. A properly-bound panel (opened via a
+  real toolbar click) keeps the full strict guarantee unchanged; only a
+  panel that never got bound in the first place degrades to the old,
+  always-query-active-tab behavior, which is strictly no less safe than
+  this codebase's behavior before the tab-scoping feature existed.
+  `tests/browser/smoke_test.py` no longer asserts an unbound panel
+  refuses to act — it asserts the fallback actually reads the active
+  tab, and the existing "panel bound to tab A reads tab A even though
+  another tab is frontmost" check confirms the strict path is
+  unaffected. 28 checks total, all passing.
 
 - 2026-09-22 (done): medium-effort audit of the reuse-consolidation
   commit below found: (1) deriving categories from `GET /samples` via

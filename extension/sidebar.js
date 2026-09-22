@@ -24,13 +24,22 @@ const boundTabId = (() => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 })();
 
-// A panel can end up here without a ?tabId= if it wasn't opened via the
-// toolbar click (e.g. Chrome's own side-panel switcher, which uses the
-// manifest's untagged default path) — scrapeActiveTab()/generateReview()
-// already refuse to act in that case, so explain why instead of leaving
-// the panel silently inert.
-if (boundTabId === null) {
-  statusMessage.textContent = "Open Ghost Writer from the toolbar icon on the tab you want to use.";
+// A panel can end up here without a ?tabId= if it wasn't opened via a
+// fresh toolbar click -- most commonly Chrome restoring a previously-open
+// panel on browser relaunch, which does not replay the click (see
+// background.js's warmUpServer()/onConnect handler, already written to
+// expect this). resolveTargetTabId() falls back to querying the current active
+// tab in that case, same as this extension did before per-tab binding
+// existed -- less strict than boundTabId (a fallback panel does briefly
+// re-expose the "acts on whichever tab is active" behavior the binding
+// was added to close), but functional is better than inert: a panel that
+// refuses to do anything until manually reopened is a worse regression
+// for every existing feature (Review mode included) than the narrow
+// cross-tab edge case this closes for the common, freshly-opened case.
+async function resolveTargetTabId() {
+  if (boundTabId !== null) return boundTabId;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id ?? null;
 }
 
 // The server runs generation as a background job (POST .../start returns a
@@ -183,10 +192,11 @@ initProviderSelect();
 // throwing when the tab isn't scriptable (chrome://, no activeTab grant
 // left after a tab switch, etc.) — callers decide whether that's fatal.
 async function scrapeActiveTab() {
-  if (boundTabId === null) return null;
+  const tabId = await resolveTargetTabId();
+  if (tabId === null) return null;
   try {
     const results = await chrome.scripting.executeScript({
-      target: { tabId: boundTabId },
+      target: { tabId },
       func: scrapePageContent,
     });
     return results[0]?.result ?? null;
@@ -285,10 +295,11 @@ async function getProviderSettings() {
 }
 
 async function generateReview() {
-  if (boundTabId === null) {
-    throw new Error("This panel isn't bound to a tab — reopen it from the toolbar icon.");
+  const tabId = await resolveTargetTabId();
+  if (tabId === null) {
+    throw new Error("Could not find a tab to read — try reopening the panel from the toolbar icon.");
   }
-  const { title, details } = await chrome.tabs.sendMessage(boundTabId, {
+  const { title, details } = await chrome.tabs.sendMessage(tabId, {
     action: "scrapeProductData",
   });
 

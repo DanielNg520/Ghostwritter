@@ -173,17 +173,31 @@ def main():
         settings.close()
 
         # ---- sidebar.html: panel behavior ----
+        # A panel restored by Chrome on relaunch (no fresh toolbar click, so
+        # no ?tabId=) must still work -- it used to go completely inert here
+        # (a real regression a user hit: Product Review broke entirely after
+        # Chrome restored the panel), so this checks the fallback-to-active-
+        # tab path, not that the panel refuses to do anything.
         unbound = ctx.new_page()
         unbound.goto(f"chrome-extension://{ext_id}/sidebar.html")
         unbound.wait_for_timeout(400)
-        check("Unbound panel (no ?tabId=) shows explanatory message",
-              "toolbar icon" in unbound.locator("#status-message").inner_text())
-        check("Unbound panel's scrapeActiveTab() returns null", unbound.evaluate("() => window.scrapeActiveTab()") is None)
-        review_error = unbound.evaluate(
-            "async () => { try { await window.generateReview(); return null; } catch (e) { return e.message; } }"
-        )
-        check("Unbound panel's generateReview() throws", "reopen it from the toolbar icon" in (review_error or ""))
+        check("Unbound panel (no ?tabId=) shows no blocking error message",
+              "toolbar icon" not in unbound.locator("#status-message").inner_text())
+
+        # Creating/navigating a page can itself steal browser focus, so the
+        # fixture page's bring_to_front() must be the LAST focus change
+        # before evaluate() -- chrome.tabs.query({active:true}) reads real
+        # browser focus state, not which Playwright page issued the call.
+        active_tab_for_fallback = ctx.new_page()
+        active_tab_for_fallback.goto(f"http://localhost:{HTTP_PORT}/fake_job.html")
+        active_tab_for_fallback.bring_to_front()
+        unbound.wait_for_timeout(200)
+
+        scraped_fallback = unbound.evaluate("() => window.scrapeActiveTab()")
+        check("Unbound panel falls back to reading the active tab instead of refusing",
+              scraped_fallback is not None and scraped_fallback.get("employer") == "Acme Corporation", scraped_fallback)
         unbound.close()
+        active_tab_for_fallback.close()
 
         panel = ctx.new_page()
         panel.goto(f"chrome-extension://{ext_id}/sidebar.html?tabId=1")
