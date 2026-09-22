@@ -137,13 +137,77 @@ function scrapePageContent() {
       }
     }
 
-    // og:site_name is only trustworthy as an employer name on the company's
-    // own domain — on a known ATS/job-board host it resolves to the
-    // platform's own brand (e.g. "Greenhouse", "LinkedIn"), not the employer.
-    if (!isJobSite) {
-      const meta = document.querySelector('meta[property="og:site_name"]');
-      if (meta && meta.content && meta.content.trim()) {
-        return meta.content.trim();
+    // "About the employer" / "About the company" style labels, immediately
+    // followed by the company's own name as a heading or link. More
+    // universal than per-site selectors since it keys on content, not markup.
+    const ABOUT_LABELS = new Set([
+      "about the employer",
+      "about this employer",
+      "about the company",
+      "about us",
+      "hiring organization"
+    ]);
+    const headings = document.querySelectorAll('h1, h2, h3, h4, [role="heading"]');
+    for (const heading of headings) {
+      const label = (heading.textContent || "").trim().toLowerCase();
+      if (!ABOUT_LABELS.has(label)) continue;
+
+      // Check next siblings, plus heading/link elements that immediately
+      // follow within the same parent container.
+      let candidates = [];
+      let sibling = heading.nextElementSibling;
+      while (sibling && candidates.length < 3) {
+        candidates.push(sibling);
+        sibling = sibling.nextElementSibling;
+      }
+      if (heading.parentElement && heading.parentElement !== heading) {
+        const following = Array.from(heading.parentElement.querySelectorAll('h1, h2, h3, h4, [role="heading"], a'));
+        const idx = following.indexOf(heading);
+        for (let i = idx + 1; i < Math.min(idx + 4, following.length); i++) {
+          candidates.push(following[i]);
+        }
+      }
+
+      for (const candidate of candidates) {
+        const text = (candidate.textContent || "").trim();
+        if (text && text.length <= 100) {
+          return text;
+        }
+      }
+    }
+
+    // Links to company-profile pages — boards commonly link the employer's
+    // name to a URL with a predictable path shape across many platforms.
+    const PROFILE_PATH_PATTERN = /\/(company|companies|employer|employers|org|organizations|cmp)\//i;
+    const links = document.querySelectorAll("a");
+    for (const link of links) {
+      const href = link.href;
+      if (!href || !PROFILE_PATH_PATTERN.test(href)) continue;
+      const text = (link.textContent || "").trim();
+      if (text && text.length <= 100) {
+        return text;
+      }
+    }
+
+    // og:site_name gated by value: skip known job-board/ATS/platform brands.
+    const PLATFORM_BRANDS = new Set([
+      "linkedin", "handshake", "indeed", "glassdoor", "greenhouse",
+      "lever", "workday", "ziprecruiter", "wellfound", "angellist",
+      "ashby", "smartrecruiters", "icims", "taleo", "simplify",
+      "monster", "dice", "workable", "bamboohr", "breezy", "jazzhr",
+      "recruitee", "personio", "teamtailor", "jobvite", "comeet",
+      "careers", "jobs"
+    ]);
+    const meta = document.querySelector('meta[property="og:site_name"]');
+    if (meta && meta.content && meta.content.trim()) {
+      const siteName = meta.content.trim();
+      const siteNameLower = siteName.toLowerCase();
+      // Substring match, not exact -- a brand often shows up inside a
+      // longer og:site_name value (e.g. "Greenhouse Job Board",
+      // "Workday - Acme Corp"), not just as the bare word alone.
+      const isPlatformBrand = [...PLATFORM_BRANDS].some((brand) => siteNameLower.includes(brand));
+      if (!isPlatformBrand) {
+        return siteName;
       }
     }
 

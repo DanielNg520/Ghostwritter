@@ -20,19 +20,22 @@ Read this file first. Update it after every implementation change.
     (see `host_permissions`). Scrapes product title/bullets for Review mode.
   - `generic_scrape.js` — page scraper for General Writer mode. Injected via
     `chrome.scripting.executeScript` (needs only `activeTab`, not broad host
-    permissions) so it works on any site. Detects known job boards/ATSes by
-    hostname (LinkedIn, Handshake, Indeed, Greenhouse, Lever, Workday, etc.)
-    and, on those, extracts just the job-description block (via a selector
-    shortlist, falling back to a keyword-scored heuristic) instead of the
-    whole page — returns `{ title, text, siteType: "job"|"general", employer }`.
-    `employer` (company name, or `null`) is read from JSON-LD `JobPosting`
-    structured data first, then (only on a non-`JOB_SITE_HOSTS` domain, since
-    on a known ATS `og:site_name` is the platform's own brand, not the real
-    employer) `<meta property="og:site_name">`; used to name the exported
-    cover-letter PDF and as its recipient line. Re-read on every
-    `generateWriting()` call and overwrites `lastEmployer` unconditionally
-    (including with `null`) so a later page's missing employer can't leave a
-    stale employer name from an earlier generation in the exported PDF.
+    permissions) so it works on any site. `JOB_SITE_HOSTS`/`JOB_SELECTORS`
+    (known job boards/ATSes by hostname, and their description-container
+    selectors) find the job *description* text, falling back to a
+    keyword-scored heuristic — returns
+    `{ title, text, siteType: "job"|"general", employer }`. `employer`
+    (company name, or `null`) is `extractEmployer()`'s universal, host-list-
+    free heuristic, tried in order: (1) JSON-LD `JobPosting.hiringOrganization`;
+    (2) an "About the employer"/"About the company"-style heading followed by
+    the company's own name as a heading or link — a content pattern, not a
+    per-site selector, so it works on boards not in `JOB_SITE_HOSTS`; (3) a
+    link to a company-profile URL (`/company/`, `/employer/`, `/cmp/`, etc.
+    path shape, common across many platforms); (4) `<meta property=
+    "og:site_name">`, gated by VALUE (substring match against a
+    `PLATFORM_BRANDS` list of known job-board/ATS names) rather than by host,
+    so it still works on ATSes not in `JOB_SITE_HOSTS` while still rejecting
+    a platform's own brand leaking through as the "employer".
   - `sidebar.js` / `sidebar.html` — the panel UI. Reads its own bound tab id
     from `location.search` (`?tabId=<id>`, set by `background.js`) into
     `boundTabId`; `scrapeActiveTab()`/`generateReview()` target that id
@@ -48,14 +51,23 @@ Read this file first. Update it after every implementation change.
     `siteType === "job"`, it auto-switches to General mode, sets category to
     `cover_letter`, and prefills the prompt — so opening a job page and
     hitting Generate needs no manual setup. Fails silently if the tab isn't
-    scriptable (no fresh `activeTab` grant, `chrome://` page, etc.). After a
-    successful `cover_letter` generation, an "Export as PDF" button
-    (`#export-pdf-btn`, hidden otherwise) becomes visible;
-    `exportCoverLetterPdf()` builds a letterhead from `profileInfo` (Settings
-    → Profile) + the last-scraped `employer` + today's date, then paginates
-    the generated body text via vendored jsPDF and saves
-    `<Employer> - Cover Letter.pdf`. No server round-trip — entirely
-    client-side from the already-approved output text.
+    scriptable (no fresh `activeTab` grant, `chrome://` page, etc.).
+    `generateWriting()` seeds `#employer-input` (in `#general-section`) from
+    the scrape's `employer` on every generation — a plain, user-editable
+    text field, not a hidden variable, since no employer heuristic is
+    perfect and this feeds directly into a document the user submits; the
+    field is the single source of truth `exportCoverLetterPdf()` reads at
+    export time, so a wrong auto-detection is a two-second fix before
+    export rather than a silent error in the PDF. After a successful
+    `cover_letter` generation, an "Export as PDF" button (`#export-pdf-btn`,
+    hidden otherwise, and re-hidden on category change so a stale export
+    can't follow a category switch) becomes visible; `exportCoverLetterPdf()`
+    builds a letterhead from `profileInfo` (Settings → Profile) +
+    `#employer-input`'s value + today's date, wrapping each line to the
+    page width, then paginates the generated body text via vendored jsPDF
+    and saves `<Employer> - Cover Letter.pdf` (filename capped at 180 chars,
+    matching `server/review_engine.py`'s `sanitize_filename()`). No server
+    round-trip — entirely client-side from the already-approved output text.
   - `settings.js` / `settings.html` — provider credentials, writing-sample
     upload/delete per category, and a Profile section (`profileInfo` in
     `chrome.storage.local`: name/email/phone/address/city/state/zip/
@@ -111,7 +123,13 @@ Read this file first. Update it after every implementation change.
 - Job-board hostname list in `generic_scrape.js` (`JOB_SITE_HOSTS`) and its
   selector shortlist (`JOB_SELECTORS`) are best-effort, not a registry kept
   perfectly in sync with site redesigns — the keyword-scored fallback exists
-  precisely so unlisted/changed sites still degrade reasonably.
+  precisely so unlisted/changed sites still degrade reasonably. Likewise
+  `extractEmployer()`'s `PLATFORM_BRANDS` list (job-board/ATS brand names,
+  for the `og:site_name` fallback) is a separate list from `JOB_SITE_HOSTS`
+  with no derivation between them (a hostname doesn't reliably map to a
+  brand display string) — adding a new ATS to one doesn't automatically
+  cover the other; a wrong guess here is also correctable via the panel's
+  editable `#employer-input`, so this isn't chased further than best-effort.
 
 ## Test / run commands
 
@@ -125,6 +143,36 @@ Read this file first. Update it after every implementation change.
   native host. For direct debugging: `python server/server.py` from `server/`.
 
 ## Carryover
+
+- 2026-09-22 (done, dispatched via TriAPI): replaced the host-gated
+  `og:site_name` employer fallback with a universal, heuristic approach
+  that needs no per-site list. `extractEmployer()` in `generic_scrape.js`
+  now tries, in order: JSON-LD (unchanged) → an "About the employer"-style
+  heading followed by the company's name (a content pattern that works on
+  any board, prompted by a real Handshake posting: "About the employer" →
+  "UC San Diego") → a link to a company-profile URL (`/company/`,
+  `/employer/`, `/cmp/`, etc.) → `og:site_name` gated by a
+  `PLATFORM_BRANDS` value-blocklist (substring match, not exact — a
+  medium-effort audit caught that exact match let "Greenhouse Job Board"-
+  style values slip through) instead of a `JOB_SITE_HOSTS` allowlist. Also
+  added a user-editable `#employer-input` field (seeded from the
+  detection, source of truth for `exportCoverLetterPdf()`) since no
+  heuristic is perfect and a wrong guess here would otherwise land
+  silently in a submitted document. The same audit also flagged
+  `ABOUT_LABELS`' bare single-word entries ("company", "employer",
+  "organization") as too eager to match unrelated headings (form fields,
+  sidebar widgets) — narrowed to the specific multi-word phrases only. 4
+  tasks (1 agy markup, 1 agy CSS, 2 DeepSeek off-peak ~$0.002), each
+  audited before applying; re-verified with Playwright against a
+  Handshake-shaped page (label heuristic), a link-only page, an
+  og:site_name-only page, and a "Greenhouse Job Board"-style substring
+  case — all correct, plus the full existing smoke-test suite still
+  passes (30 checks total). Not fixed, accepted as a heuristic limit (see
+  Conventions above): the profile-link heuristic takes the first matching
+  link in document order with no "does this actually belong to the
+  posting I'm looking at" check — a "Similar companies" link elsewhere on
+  the page could in principle win; the editable field is the safety net
+  for this class of mistake, not a tighter heuristic.
 
 - 2026-09-22 (done): high-effort multi-angle audit (8 finder angles) of
   the Profile/PDF/tab-scoping work below found 6 more real issues beyond

@@ -87,6 +87,7 @@ const modeGeneralBtn = document.getElementById("mode-general-btn");
 const reviewSection = document.getElementById("review-section");
 const generalSection = document.getElementById("general-section");
 const categorySelect = document.getElementById("category-select");
+const employerInput = document.getElementById("employer-input");
 const promptInput = document.getElementById("prompt");
 const providerSelect = document.getElementById("provider-select");
 
@@ -190,7 +191,6 @@ async function detectJobPageAndConfigure() {
 detectJobPageAndConfigure();
 
 let currentMode = "review"; // "review" | "general"
-let lastEmployer = null;
 
 function setMode(mode) {
   currentMode = mode;
@@ -277,7 +277,7 @@ async function generateWriting() {
   if (!scraped) throw new Error("Could not read the current page — try a different tab.");
   const { title, text, employer } = scraped;
 
-  lastEmployer = employer;
+  employerInput.value = employer || "";
 
   const prompt = promptInput.value;
   const category = categorySelect.value;
@@ -305,6 +305,7 @@ async function generateWriting() {
 }
 
 async function exportCoverLetterPdf() {
+  const employer = employerInput.value.trim();
   const body = output.value.trim();
   if (!body) {
     statusMessage.textContent = "Nothing to export yet — generate a cover letter first.";
@@ -380,8 +381,8 @@ async function exportCoverLetterPdf() {
   const dateStr = `${months[today.getMonth()]} ${today.getDate()}, ${today.getFullYear()}`;
   y = drawWrapped(dateStr, y) + paragraphGap;
 
-  if (lastEmployer) {
-    y = drawWrapped(lastEmployer, y);
+  if (employer) {
+    y = drawWrapped(employer, y);
   }
 
   y += paragraphGap;
@@ -396,7 +397,7 @@ async function exportCoverLetterPdf() {
     y += lineHeight;
   }
 
-  const safeEmployer = (lastEmployer || "Cover Letter")
+  const safeEmployer = (employer || "Cover Letter")
     .replace(/[/\\:*?"<>|]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
