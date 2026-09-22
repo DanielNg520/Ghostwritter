@@ -567,12 +567,91 @@ Read this file first. Update it after every implementation change.
   `workspace/sample/cover_letter/` (folder created, empty) — quality will
   be generic until the user drops some in via Settings.
 
+- **Next item (not started): extension redesign master plan.** Five
+  workstreams from a 2026-09-22 afternoon design discussion, consolidated
+  here per doc hygiene (plans live in this file, not a separate one).
+  Sequencing matters — see dependency notes on each item before picking
+  one to start.
+
+  - **Sequencing.** Do (1) first: it reshapes `providerSettings` and
+    where samples/rules/memory live, which (2) and (3) also touch —
+    doing those first means redoing them. (4) is independent, safe to
+    do anytime. (5) should come **after** (1)–(3) land: redesigning UI
+    around a data model that's about to change wastes the design work.
+    Recommended order: (1) → (2) → (3) → (4) → (5), or (4) done
+    opportunistically in parallel since it doesn't touch shared state.
+
+  - **(1) Drop agy/Claude Code CLI providers, go pure API + local-model-
+    endpoint only.** Deletes entirely: `native-host/host.py` (153
+    lines), `server/server.py` (321), `server/secrets_loader.py` (58),
+    `server/cli_path.py` (21), `tests/server/*.py` (365),
+    `config/secrets.enc.yaml`, `.sops.yaml`, `server/requirements.txt`
+    — ~1,345 lines gone, Python and `sops` no longer project
+    dependencies at all. `review_engine.py`'s CLI-specific ~150-180
+    lines (`run_agy`, `run_claude_code`, `_parse_agy_json`, CLI
+    branches in `_dispatch_to_provider`) also just vanish; its
+    remaining logic (prompt builders, `ai_score`/refine-loop
+    orchestration, sample management) gets ported to `sidebar.js` as
+    plain `fetch()` calls, not duplicated across languages. Samples +
+    `RULES.MD`/`MEMORY.MD` move from `workspace/`/`docs/` files to
+    `chrome.storage`/IndexedDB, edited via a Settings UI instead of a
+    text editor (`RULES.MD`/`MEMORY.MD` editing was previously a plain-
+    file workflow — this is a real, not free, downgrade for that
+    habit). Local-model calls become direct `fetch()` from the
+    extension to the user's endpoint, needing `optional_host_permissions`
+    requested at runtime (the endpoint is user-configurable, so it
+    can't be a fixed `host_permissions` entry). **Why:** per the user's
+    own code policy ("the best line of code is the one you don't write
+    at all") — this isn't marginal cleanup, it removes whole classes of
+    risk this session repeatedly hit: cross-language duplication (the
+    `SAMPLE_CATEGORIES` bug class), Chrome's minimal-PATH subprocess
+    issues (`cli_path.py` existed only for this), and stale-long-lived-
+    process bugs (the managed-server staleness gotcha from this same
+    session) — structurally impossible with no separate server process.
+  - **(2) Personalization file** (a background "about me" text blob).
+    Extends the existing `RULES.MD`/`MEMORY.MD` context-injection
+    (`build_context()`) as a third injected context source — not a new
+    primitive. After (1), lives in the same `chrome.storage` location
+    as the relocated `RULES.MD`/`MEMORY.MD`, edited via the same
+    Settings textarea mechanism, not a separate new one.
+  - **(3) Local + API dual-provider workflow.** Reuses the existing
+    `generate_review_text()`/`ai_score()` split (already two separate
+    calls) instead of introducing new orchestration: let the cheap,
+    repeated AI-detection scoring pass use the local model while the
+    real generation uses the cloud API. Needs `providerSettings`
+    restructured from one `activeProvider` to two slots (generation
+    provider, scoring provider) — do this as part of (1)'s data-model
+    change, not a second migration.
+  - **(4) True single-tab panel attachment (visibility, not just
+    content).** Gap in the existing tab-scoping work: `boundTabId`/
+    `resolveTargetTabId()` already scope which tab the panel *reads*,
+    but the panel's *visibility* is still Chrome's default side-panel
+    behavior — it can still appear to follow across tabs or fall back
+    to an unbound global instance instead of closing when you switch
+    away. Fix: `background.js` explicitly calls
+    `chrome.sidePanel.setOptions({ tabId, enabled: false })` for tabs
+    other than the one the panel was opened on (e.g. via
+    `chrome.tabs.onActivated`), instead of relying only on enabling the
+    clicked tab. Small, self-contained, no dependency on (1)-(3).
+  - **(5) UI/UX overhaul.** The vaguest-scoped, biggest item — needs an
+    actual interaction-design pass, not incremental CSS. Concrete
+    techniques to apply, per the user's own framing (attention-guiding,
+    "how does this even work" confusion): visual hierarchy (primary
+    "Generate" action prominent, secondary controls de-emphasized),
+    progressive disclosure (category/employer/provider fields only
+    shown when relevant to the current mode, not all-always-visible),
+    a guided workflow indicator (what step you're on, what's next),
+    consistent with the existing "topographic" visual identity already
+    chosen for this sidebar (see the 2026-09-xx sidebar redesign commit
+    in git log). **Do this last** — see Sequencing above.
+
 - **Next item (not started): nvim creative-writing flow.** Cursor
   Ctrl-K/Ctrl-I-style in-editor agent call for nvim — finish writing, hit a
   keybinding, agent reads context from cursor position, refines/expands/
   proofreads, and on approval replaces selected text or iterates on inline
-  comments. Full design below; this is the only carryover plan, per doc
-  hygiene there is no separate plan.md.
+  comments. Full design below; per doc hygiene, this and the redesign
+  master plan above are both kept as carryover entries here, not
+  separate plan files.
 
   - **UI layer:** avante.nvim's right-hand sidebar (not opencode's built-in
     terminal UI) — finish paragraph, hit shortcut, agent reads from cursor,
