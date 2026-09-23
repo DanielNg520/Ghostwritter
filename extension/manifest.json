@@ -8,12 +8,16 @@
     "sidePanel",
     "scripting",
     "activeTab",
-    "storage",
-    "nativeMessaging"
+    "storage"
   ],
   "host_permissions": [
     "*://*.amazon.com/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "https://openrouter.ai/*",
+    "https://api.groq.com/*"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
   ],
   "icons": {
     "16": "icons/icon16.png",

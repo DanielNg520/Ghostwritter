@@ -1,5 +1,5 @@
-const providerAgy = document.getElementById('provider-agy');
-const providerClaudeCode = document.getElementById('provider-claude-code');
+import { listSampleCategories, listSamples, saveSample, deleteSample } from './lib/samples_store.js';
+
 const providerOpenrouter = document.getElementById('provider-openrouter');
 const providerGroq = document.getElementById('provider-groq');
 const providerLocal = document.getElementById('provider-local');
@@ -17,16 +17,14 @@ chrome.storage.local.get('providerSettings').then((result) => {
   const settings = result.providerSettings;
   const activeProvider = settings?.activeProvider;
 
-  if (activeProvider === 'claude_code') {
-    providerClaudeCode.checked = true;
-  } else if (activeProvider === 'openrouter') {
+  if (activeProvider === 'openrouter') {
     providerOpenrouter.checked = true;
   } else if (activeProvider === 'groq') {
     providerGroq.checked = true;
   } else if (activeProvider === 'local') {
     providerLocal.checked = true;
   } else {
-    providerAgy.checked = true;
+    providerOpenrouter.checked = true;
   }
 
   openrouterApiKey.value = settings?.openrouter?.apiKey ?? '';
@@ -103,12 +101,29 @@ saveProfileBtn.addEventListener('click', () => {
   });
 });
 
-// --- Writing Samples manager (Phase 5) ---
-// Category panels are generated dynamically from the server's category
-// list rather than hand-written 7x in settings.html, to avoid
-// near-duplicate markup drift.
+const rulesText = document.getElementById('rules-text');
+const memoryText = document.getElementById('memory-text');
+const saveRulesMemoryBtn = document.getElementById('save-rules-memory-btn');
+const rulesMemoryStatus = document.getElementById('rules-memory-status');
 
-const SAMPLES_API = 'http://localhost:8000/samples';
+chrome.storage.local.get(['rulesText', 'memoryText']).then((result) => {
+  rulesText.value = result.rulesText ?? '';
+  memoryText.value = result.memoryText ?? '';
+});
+
+saveRulesMemoryBtn.addEventListener('click', () => {
+  chrome.storage.local.set({
+    rulesText: rulesText.value,
+    memoryText: memoryText.value,
+  }).then(() => {
+    rulesMemoryStatus.textContent = 'Rules & Memory saved.';
+  });
+});
+
+// --- Writing Samples manager (Phase 5) ---
+// Category panels are generated dynamically from lib/samples_store.js's
+// category list rather than hand-written 7x in settings.html, to avoid
+// near-duplicate markup drift.
 
 const samplesSection = document.getElementById('samples-section');
 const samplesStatus = document.getElementById('samples-status');
@@ -193,7 +208,7 @@ function renderSampleList(category, filenames) {
     deleteBtn.type = 'button';
     deleteBtn.className = 'sample-delete-btn';
     deleteBtn.textContent = 'Delete';
-    deleteBtn.addEventListener('click', () => deleteSample(category, filename));
+    deleteBtn.addEventListener('click', () => removeSample(category, filename));
 
     item.appendChild(name);
     item.appendChild(deleteBtn);
@@ -202,40 +217,13 @@ function renderSampleList(category, filenames) {
 }
 
 async function loadAllSamples() {
-  try {
-    const response = await fetch(SAMPLES_API);
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
-    }
-    const data = await response.json();
-    const categories = data.categories || {};
-    // Server sends categories in its own intended display order (see
-    // list_sample_categories()) -- Object.keys() preserves that insertion
-    // order for string keys, so don't re-sort it alphabetically here.
-    const categoryNames = Object.keys(categories);
-    buildCategoryPanels(categoryNames);
-    categoryNames.forEach((category) => {
-      renderSampleList(category, categories[category] || []);
-    });
-    samplesStatus.textContent = '';
-  } catch (err) {
-    samplesStatus.textContent = 'Could not load samples — make sure Ghost Writer\'s server is running.';
+  const categoryNames = await listSampleCategories();
+  buildCategoryPanels(categoryNames);
+  for (const category of categoryNames) {
+    const filenames = await listSamples(category);
+    renderSampleList(category, filenames);
   }
-}
-
-async function refreshCategory(category) {
-  try {
-    const response = await fetch(SAMPLES_API);
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
-    }
-    const data = await response.json();
-    const categories = data.categories || {};
-    renderSampleList(category, categories[category] || []);
-    samplesStatus.textContent = '';
-  } catch (err) {
-    samplesStatus.textContent = 'Could not load samples — make sure Ghost Writer\'s server is running.';
-  }
+  samplesStatus.textContent = '';
 }
 
 function setSampleMessage(category, message) {
@@ -245,38 +233,17 @@ function setSampleMessage(category, message) {
   }
 }
 
-async function deleteSample(category, filename) {
-  try {
-    const response = await fetch(SAMPLES_API, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, filename }),
-    });
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
-    }
-    await refreshCategory(category);
-  } catch (err) {
-    samplesStatus.textContent = 'Could not load samples — make sure Ghost Writer\'s server is running.';
-  }
+async function removeSample(category, filename) {
+  await deleteSample(category, filename);
+  const filenames = await listSamples(category);
+  renderSampleList(category, filenames);
 }
 
 async function addSample(category, filename, content) {
-  try {
-    const response = await fetch(SAMPLES_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, filename, content }),
-    });
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
-    }
-    await refreshCategory(category);
-    return true;
-  } catch (err) {
-    samplesStatus.textContent = 'Could not load samples — make sure Ghost Writer\'s server is running.';
-    return false;
-  }
+  await saveSample(category, filename, content);
+  const filenames = await listSamples(category);
+  renderSampleList(category, filenames);
+  return true;
 }
 
 loadAllSamples();

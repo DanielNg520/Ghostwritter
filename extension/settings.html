@@ -13,17 +13,7 @@
 
   <section class="settings-section">
     <h2 class="section-title">Provider</h2>
-    <p>Choose which AI generates your reviews. If OpenRouter/Groq is left blank here, Ghost Writer uses the server's saved default for it if one exists; if a provider isn't configured at all, generation falls back to Agy. If a configured provider's API call itself fails, that error is shown directly — it no longer retries silently through Agy.</p>
-
-    <div class="provider-row">
-      <input type="radio" name="provider" value="agy" id="provider-agy">
-      <label for="provider-agy">Agy (local CLI, no API key needed)</label>
-    </div>
-
-    <div class="provider-row">
-      <input type="radio" name="provider" value="claude_code" id="provider-claude-code">
-      <label for="provider-claude-code">Claude Code (local CLI, no API key needed)</label>
-    </div>
+    <p>Choose which AI generates your reviews. Fill in an API key and model for OpenRouter or Groq, or an endpoint and model for a local model server. If a provider's API call fails, that error is shown directly.</p>
 
     <div class="provider-row">
       <input type="radio" name="provider" value="openrouter" id="provider-openrouter">
@@ -95,6 +85,22 @@
   <hr class="section-divider">
 
   <section class="settings-section">
+    <h2 class="section-title">Rules & Memory</h2>
+    <p>These are injected into every generation prompt to guide tone, constraints, and context.</p>
+
+    <label for="rules-text">Rules (must follow)</label>
+    <textarea id="rules-text"></textarea>
+
+    <label for="memory-text">Memory (context to keep in mind)</label>
+    <textarea id="memory-text"></textarea>
+
+    <button id="save-rules-memory-btn">Save Rules & Memory</button>
+    <div id="rules-memory-status"></div>
+  </section>
+
+  <hr class="section-divider">
+
+  <section class="settings-section">
     <h2 class="section-title">Writing Samples</h2>
     <p>Manage the writing samples Ghost Writer draws its voice from, organized by category. Upload a file or paste text directly.</p>
     <div id="samples-status"></div>
@@ -102,6 +108,6 @@
   </section>
 
   <script src="lib/format.js"></script>
-  <script src="settings.js"></script>
+  <script type="module" src="settings.js"></script>
 </body>
 </html>

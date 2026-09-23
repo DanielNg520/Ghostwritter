@@ -3,19 +3,13 @@
 
 Covers what actually breaks silently: extractEmployer()'s heuristics
 (generic_scrape.js), the Settings Profile round-trip, category-select /
-sample-panel population (both now sourced live from the server, not a
-hardcoded list -- see tests/server/'s own suite for that server-side half),
+sample-panel population (both now sourced from chrome.storage.local via
+samples_store.js and fully covered by this self-contained suite),
 cover-letter PDF export, and the per-tab panel binding
 (sidebar.js/background.js).
 
 Requires:
   1. pip install -r tests/requirements-dev.txt && playwright install chromium
-  2. The Ghost Writer server running at localhost:8000 (e.g. `python3
-     server/server.py` from server/, in the .venv that has its
-     requirements.txt installed) -- category-select and the Settings
-     sample panels are now fetched live from it, not hardcoded, so this
-     suite can't fully self-host that part the way it does the fixture
-     pages below.
 Run: python3 tests/browser/smoke_test.py
 
 Starts its own local HTTP server for the fixtures/ pages (some checks need
@@ -31,8 +25,6 @@ import json
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -69,22 +61,7 @@ def start_fixture_server():
     return httpd
 
 
-def check_ghostwriter_server_running():
-    """category-select/the Settings sample panels are now fetched live from
-    the real server rather than hardcoded -- fail fast with a clear message
-    instead of a confusing mid-run Playwright timeout if it's not up."""
-    try:
-        urllib.request.urlopen("http://localhost:8000/health", timeout=2)
-    except (urllib.error.URLError, ConnectionError):
-        print(
-            "[ERROR] Ghost Writer server isn't reachable at localhost:8000.\n"
-            "        Start it first: cd server && ../.venv/bin/python3 server.py"
-        )
-        sys.exit(1)
-
-
 def main():
-    check_ghostwriter_server_running()
     httpd = start_fixture_server()
     ext_id = extension_id()
     scrape_src = (EXT_DIR / "generic_scrape.js").read_text()
@@ -204,6 +181,11 @@ def main():
         panel.wait_for_timeout(400)
         check("export-pdf-btn hidden by default", panel.is_hidden("#export-pdf-btn"))
         check("jsPDF global loaded", panel.evaluate("() => typeof window.jspdf") == "object")
+
+        option_values = panel.eval_on_selector_all("#category-select option", "opts => opts.map(o => o.value)")
+        check("category-select populated from chrome.storage (no server)",
+              option_values == ["formal", "casual", "academic", "creative", "narrative", "technical", "review", "cover_letter"],
+              option_values)
 
         panel.click("#mode-general-btn")
         panel.evaluate("() => { document.getElementById('export-pdf-btn').hidden = false; }")

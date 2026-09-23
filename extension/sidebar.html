@@ -19,8 +19,6 @@
   <div id="provider-row">
     <label for="provider-select">Generate with</label>
     <select id="provider-select">
-      <option value="agy">Agy (local CLI)</option>
-      <option value="claude_code">Claude Code (local CLI)</option>
       <option value="openrouter">OpenRouter</option>
       <option value="groq">Groq</option>
       <option value="local">Local model</option>
@@ -55,6 +53,6 @@
   <script src="lib/jspdf.umd.min.js"></script>
   <script src="lib/format.js"></script>
   <script src="generic_scrape.js"></script>
-  <script src="sidebar.js"></script>
+  <script type="module" src="sidebar.js"></script>
 </body>
 </html>

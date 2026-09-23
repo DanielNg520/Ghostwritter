@@ -1,11 +1,6 @@
-// Tells background.js the side panel is open so it can warm up the local
-// server via native messaging (covers panel restore without a fresh
-// toolbar click; the toolbar click itself already triggers warm-up too).
-try {
-  chrome.runtime.connect({ name: "sidebar" });
-} catch (err) {
-  console.log("Ghost Writer: could not open sidebar port", err);
-}
+import { listSampleCategories, readSamplesText } from './lib/samples_store.js';
+import { buildContext, buildTextPrompt, buildGeneralistPrompt } from './lib/prompt_builders.js';
+import { runGenerationPipeline, MAX_REFINE_ATTEMPTS } from './lib/generation_pipeline.js';
 
 const commentInput = document.getElementById("comment");
 const generateBtn = document.getElementById("generate-btn");
@@ -26,9 +21,8 @@ const boundTabId = (() => {
 
 // A panel can end up here without a ?tabId= if it wasn't opened via a
 // fresh toolbar click -- most commonly Chrome restoring a previously-open
-// panel on browser relaunch, which does not replay the click (see
-// background.js's warmUpServer()/onConnect handler, already written to
-// expect this). resolveTargetTabId() falls back to querying the current active
+// panel on browser relaunch, which does not replay the click.
+// resolveTargetTabId() falls back to querying the current active
 // tab in that case, same as this extension did before per-tab binding
 // existed -- less strict than boundTabId (a fallback panel does briefly
 // re-expose the "acts on whichever tab is active" behavior the binding
@@ -42,19 +36,18 @@ async function resolveTargetTabId() {
   return tab?.id ?? null;
 }
 
-// The server runs generation as a background job (POST .../start returns a
-// job_id) and reports its actual pipeline stage on each poll, so the bar
-// reflects real state — never a time-based guess. Stage order matches
-// server.py's _run_review_job/_run_writing_job: an initial "writing" call,
-// then "scoring" (ai_score), then — only if the score's still too AI-sounding
-// — "rewriting" and back to "scoring" again, up to max_attempts times.
+// runGenerationPipeline() (lib/generation_pipeline.js) reports its real
+// pipeline stage via the onStage callback, so the bar reflects actual
+// progress — never a time-based guess. Stage order: an initial "writing"
+// call, then "scoring" (aiScore), then — only if the score's still too
+// AI-sounding — "rewriting" and back to "scoring" again, up to
+// MAX_REFINE_ATTEMPTS times.
 const STAGE_LABELS = {
   writing: "Writing",
   scoring: "Checking AI score",
   rewriting: "Rewriting",
 };
 const STAGE_FILL_PCT = { writing: 15, scoring: 50, rewriting: 80 };
-const POLL_INTERVAL_MS = 500;
 
 function renderStage(stage, attempt, maxAttempts) {
   progressFill.style.width = `${STAGE_FILL_PCT[stage] ?? 15}%`;
@@ -67,30 +60,6 @@ function resetProgress() {
   progressEta.textContent = "";
 }
 
-// Starts the job, polls its real progress until the server reports it done,
-// and returns the final result payload (or throws, same as a plain fetch).
-async function runJob(kind, payload) {
-  const startRes = await fetch(`http://localhost:8000/generate-${kind}/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!startRes.ok) throw new Error(await extractErrorDetail(startRes));
-  const { job_id } = await startRes.json();
-
-  while (true) {
-    const res = await fetch(`http://localhost:8000/generate-${kind}/progress/${job_id}`);
-    if (!res.ok) throw new Error(await extractErrorDetail(res));
-    const data = await res.json();
-    if (data.done) {
-      progressFill.style.width = "100%";
-      return data;
-    }
-    renderStage(data.stage, data.attempt, data.max_attempts);
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-}
-
 const modeReviewBtn = document.getElementById("mode-review-btn");
 const modeGeneralBtn = document.getElementById("mode-general-btn");
 const reviewSection = document.getElementById("review-section");
@@ -100,71 +69,31 @@ const employerInput = document.getElementById("employer-input");
 const promptInput = document.getElementById("prompt");
 const providerSelect = document.getElementById("provider-select");
 
-// Fetches the real category list from the same /samples endpoint used
-// elsewhere, and fills #category-select with it. Falls back to a plain
-// "Could not load categories" message when the server is unreachable.
+// Fetches the real category list from lib/samples_store.js (chrome.storage-
+// backed, the same source settings.js's sample panels use) and fills
+// #category-select with it.
 async function populateCategorySelect() {
-  try {
-    const res = await fetch("http://localhost:8000/samples");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+  const categories = await listSampleCategories();
+  categorySelect.replaceChildren();
 
-    // Server sends categories in its own intended display order (see
-    // list_sample_categories()) -- Object.keys() preserves that insertion
-    // order for string keys, so don't re-sort it alphabetically here.
-    const categories = Object.keys(data.categories);
-    categorySelect.replaceChildren();
-
-    for (const category of categories) {
-      const option = document.createElement("option");
-      option.value = category;
-      option.textContent = capitalizeCategory(category);
-      categorySelect.appendChild(option);
-    }
-  } catch {
-    categorySelect.replaceChildren();
+  for (const category of categories) {
     const option = document.createElement("option");
-    option.value = "";
-    option.disabled = true;
-    option.selected = true;
-    option.textContent = "Could not load categories — check the server";
+    option.value = category;
+    option.textContent = capitalizeCategory(category);
     categorySelect.appendChild(option);
   }
 }
 
-// agy/claude_code are local CLIs, always usable. openrouter/groq/local need
-// credentials — either saved in this extension's Settings page, or (for
-// openrouter/groq only) a default from the server's encrypted secrets file.
-// Populates the quick-switcher with only what's actually usable right now,
-// so picking an option never silently falls back to something else.
+// openrouter/groq/local all need credentials saved in this extension's
+// Settings page. Populates the quick-switcher with only what's actually
+// usable right now, so picking an option never silently falls back to
+// something else.
 async function initProviderSelect() {
-  const { providerSettings, serverProviderDefaults } = await chrome.storage.local.get([
-    "providerSettings",
-    "serverProviderDefaults",
-  ]);
-
-  // The server is usually still cold-starting (native-messaging warm-up is
-  // async) right when this runs on panel open, so a failed fetch here does
-  // NOT mean openrouter/groq are actually unconfigured — fall back to the
-  // last known-good result instead of guessing false, or a real credential
-  // would flicker "not set up" and get silently swapped back to agy on
-  // almost every panel open.
-  let serverDefaults = serverProviderDefaults ?? { openrouter: false, groq: false };
-  try {
-    const res = await fetch("http://localhost:8000/provider-defaults");
-    if (res.ok) {
-      serverDefaults = await res.json();
-      chrome.storage.local.set({ serverProviderDefaults: serverDefaults });
-    }
-  } catch {
-    // Server unreachable right now — use the cached result from last time.
-  }
+  const { providerSettings } = await chrome.storage.local.get(["providerSettings"]);
 
   const available = {
-    agy: true,
-    claude_code: true,
-    openrouter: !!(providerSettings?.openrouter?.apiKey && providerSettings?.openrouter?.model) || !!serverDefaults.openrouter,
-    groq: !!(providerSettings?.groq?.apiKey && providerSettings?.groq?.model) || !!serverDefaults.groq,
+    openrouter: !!(providerSettings?.openrouter?.apiKey && providerSettings?.openrouter?.model),
+    groq: !!(providerSettings?.groq?.apiKey && providerSettings?.groq?.model),
     local: !!(providerSettings?.local?.endpoint && providerSettings?.local?.model),
   };
 
@@ -175,7 +104,7 @@ async function initProviderSelect() {
   }
 
   const saved = providerSettings?.activeProvider;
-  providerSelect.value = available[saved] ? saved : "agy";
+  providerSelect.value = available[saved] ? saved : "openrouter";
 }
 
 providerSelect.addEventListener("change", async () => {
@@ -281,7 +210,7 @@ settingsBtn.addEventListener("click", () => {
 // mid-session switch takes effect on the very next click with no reload.
 async function getProviderSettings() {
   const { providerSettings } = await chrome.storage.local.get("providerSettings");
-  const provider = providerSelect.value || providerSettings?.activeProvider || "agy";
+  const provider = providerSelect.value || providerSettings?.activeProvider || "openrouter";
   const apiKey =
     provider === "openrouter" ? providerSettings?.openrouter?.apiKey ?? "" :
     provider === "groq" ? providerSettings?.groq?.apiKey ?? "" :
@@ -307,51 +236,58 @@ async function generateReview() {
 
   const comment = commentInput.value;
   const { provider, apiKey, model, endpoint } = await getProviderSettings();
+  const config = { apiKey, model, endpoint };
 
-  const data = await runJob("review", {
-    product_title: title,
-    product_details: details,
-    user_comment: comment,
+  const { rulesText, memoryText } = await chrome.storage.local.get(["rulesText", "memoryText"]);
+  const contextBlock = buildContext(rulesText || "", memoryText || "");
+
+  const samplesText = await readSamplesText("review");
+
+  const prompt = buildTextPrompt(title, details, comment, contextBlock, samplesText);
+
+  const { text } = await runGenerationPipeline({
+    prompt,
+    contextBlock,
     provider,
-    api_key: apiKey,
-    model,
-    endpoint,
+    config,
+    onStage: (stage, attempt) => renderStage(stage, attempt ?? 0, MAX_REFINE_ATTEMPTS),
   });
 
-  output.value = data.review;
-  if (data.provider_warning) {
-    statusMessage.textContent = data.provider_warning;
-  }
+  output.value = text;
+  progressFill.style.width = "100%";
 }
 
 async function generateWriting() {
   const scraped = await scrapeActiveTab();
   if (!scraped) throw new Error("Could not read the current page — try a different tab.");
-  const { title, text, employer } = scraped;
+  const { title, text: pageText, employer } = scraped;
 
   employerInput.value = employer || "";
 
-  const prompt = promptInput.value;
+  const userPrompt = promptInput.value;
   const category = categorySelect.value;
   const { provider, apiKey, model, endpoint } = await getProviderSettings();
+  const config = { apiKey, model, endpoint };
 
-  const data = await runJob("writing", {
-    page_title: title,
-    page_text: text,
-    user_prompt: prompt,
-    category,
+  const { rulesText, memoryText } = await chrome.storage.local.get(["rulesText", "memoryText"]);
+  const contextBlock = buildContext(rulesText || "", memoryText || "");
+
+  const samplesText = await readSamplesText(category);
+
+  const prompt = buildGeneralistPrompt(title, pageText, userPrompt, category, contextBlock, samplesText);
+
+  const { text: resultText } = await runGenerationPipeline({
+    prompt,
+    contextBlock,
     provider,
-    api_key: apiKey,
-    model,
-    endpoint,
+    config,
+    onStage: (stage, attempt) => renderStage(stage, attempt ?? 0, MAX_REFINE_ATTEMPTS),
   });
 
-  output.value = data.writing;
-  if (data.provider_warning) {
-    statusMessage.textContent = data.provider_warning;
-  }
+  output.value = resultText;
+  progressFill.style.width = "100%";
 
-  if (category === "cover_letter" && data.writing) {
+  if (category === "cover_letter" && resultText) {
     exportPdfBtn.hidden = false;
   }
 }
@@ -459,17 +395,12 @@ async function exportCoverLetterPdf() {
 
 exportPdfBtn.addEventListener("click", exportCoverLetterPdf);
 
-// Pulls FastAPI's {"detail": "..."} out of a non-ok response so the status
-// message can show what actually went wrong, instead of a generic string.
-async function extractErrorDetail(response) {
-  try {
-    const data = await response.json();
-    if (data?.detail) return data.detail;
-  } catch {
-    // response body wasn't JSON — fall through to the generic message below
-  }
-  return `Request failed (HTTP ${response.status})`;
-}
+// A module script's top-level function declarations aren't attached to
+// `window` the way a classic script's are (unlike before sidebar.js became
+// a module) — tests/browser/smoke_test.py drives these directly via
+// page.evaluate(), so they need an explicit hook.
+window.scrapeActiveTab = scrapeActiveTab;
+window.exportCoverLetterPdf = exportCoverLetterPdf;
 
 generateBtn.addEventListener("click", async () => {
   statusMessage.textContent = "";
@@ -492,7 +423,7 @@ generateBtn.addEventListener("click", async () => {
     // page — carries a real message worth showing instead of guessing.
     statusMessage.textContent =
       err instanceof TypeError
-        ? "Make sure the background server is running!"
+        ? "Network error — check your connection and provider settings."
         : err.message;
   } finally {
     setTimeout(() => {

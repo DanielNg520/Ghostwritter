@@ -1,9 +1,10 @@
 # Ghost Writer — AGENTS.md
 
-Chrome extension (MV3) + local FastAPI server + native-messaging host. Personal
-tool: writes Amazon Vine reviews and general-purpose text (cover letters,
-essays, etc.) in the user's voice, using local CLIs (agy/claude_code) or
-external providers (OpenRouter/Groq/local model) as the LLM backend.
+Chrome extension (MV3), pure client-side — no local server, no native
+messaging. Personal tool: writes Amazon Vine reviews and general-purpose
+text (cover letters, essays, etc.) in the user's voice, calling
+OpenRouter/Groq/a local model endpoint directly from the extension as the
+LLM backend.
 
 Read this file first. Update it after every implementation change.
 
@@ -14,8 +15,7 @@ Read this file first. Update it after every implementation change.
     to that specific tab (`chrome.sidePanel.setOptions({tabId, path:
     "sidebar.html?tabId=<id>", enabled: true})`) before opening it, so each
     tab gets its own panel instance instead of one shared panel that follows
-    whichever tab is currently focused. Also warms up the native host (which
-    ensures the local server is running).
+    whichever tab is currently focused.
   - `content.js` — static content script, scoped to `*://*.amazon.com/*`
     (see `host_permissions`). Scrapes product title/bullets for Review mode.
   - `generic_scrape.js` — page scraper for General Writer mode. Injected via
@@ -68,90 +68,85 @@ Read this file first. Update it after every implementation change.
     `#employer-input`'s value + today's date, wrapping each line to the
     page width, then paginates the generated body text via vendored jsPDF
     and saves `<Employer> - Cover Letter.pdf` (filename capped at 180 chars,
-    matching `server/review_engine.py`'s `sanitize_filename()`). No server
-    round-trip — entirely client-side from the already-approved output text.
+    matching `lib/samples_store.js`'s sanitizer). Entirely client-side from
+    the already-approved output text.
+  - `sidebar.js` is loaded as an ES module (`<script type="module">`) so it
+    can `import` from `lib/`. `generateReview()`/`generateWriting()` build a
+    prompt via `lib/prompt_builders.js`, pull samples text via
+    `lib/samples_store.js`'s `readSamplesText(category)`, and run the
+    generate→score→refine loop via `lib/generation_pipeline.js`'s
+    `runGenerationPipeline()` — no server round-trip, no job-id polling.
+    `window.scrapeActiveTab`/`window.exportCoverLetterPdf` are explicitly
+    exposed for `tests/browser/smoke_test.py` (a module's top-level
+    functions aren't `window` properties the way a classic script's are).
   - `settings.js` / `settings.html` — provider credentials, writing-sample
-    upload/delete per category, and a Profile section (`profileInfo` in
-    `chrome.storage.local`: name/email/phone/address/city/state/zip/
-    linkedin) used to fill in the sender block on exported cover letters.
-    Sample-category panels are built from `GET /samples`'s real category
-    list (`buildCategoryPanels()`, called once the first fetch resolves),
-    not a hardcoded array — a new `workspace/sample/<name>/` folder shows
-    up with zero code changes.
+    upload/delete per category (via `lib/samples_store.js`), a Profile
+    section (`profileInfo` in `chrome.storage.local`: name/email/phone/
+    address/city/state/zip/linkedin) used to fill in the sender block on
+    exported cover letters, and a Rules & Memory section (`rulesText`/
+    `memoryText` in `chrome.storage.local`, replacing the old
+    `docs/RULES.MD`/`docs/MEMORY.MD` files). Also loaded as an ES module.
+    Sample-category panels are built from `listSampleCategories()`'s real
+    category list, not a hardcoded array.
   - `sidebar.js`'s `#category-select` is populated the same way
     (`populateCategorySelect()`, awaited before `detectJobPageAndConfigure()`
     so its `cover_letter` auto-select check has real options to find).
+  - `lib/provider_client.js` — `callChatCompletions(url, headers, model,
+    prompt)` is the one shared OpenAI-compatible chat-completions caller;
+    `callOpenRouter()`/`callGroq()`/`callLocal()` each just supply their own
+    url/headers and delegate to it. `aiScore(text, provider, config)` rates
+    how AI-sounding a piece of text is (0-100), same shared dispatch.
+  - `lib/prompt_builders.js` — `buildContext`, `buildTextPrompt`,
+    `buildGeneralistPrompt`, `buildRefinePrompt`: pure string builders, no
+    side effects, no fetch calls.
+  - `lib/generation_pipeline.js` — `runGenerationPipeline({prompt,
+    contextBlock, provider, config, onStage})`: the one shared generate→
+    score→refine-loop (`MAX_REFINE_ATTEMPTS` = 5, exported; internal
+    `AI_SCORE_TARGET` = 20), reused by both Review and General Writer modes
+    — do not split into two copies.
+  - `lib/samples_store.js` — `SAMPLE_CATEGORIES` (the ordered source of
+    truth for style categories, no directory scan needed since there's no
+    filesystem) plus `listSampleCategories()`/`listSamples()`/
+    `saveSample()`/`deleteSample()`/`readSamplesText()`, all backed by one
+    `chrome.storage.local` key (`"samples"`, shaped `{category:
+    {filename: content}}`). Adding a category = adding one entry to
+    `SAMPLE_CATEGORIES`, one place, not two.
   - `lib/jspdf.umd.min.js` — vendored jsPDF 2.5.2 UMD build (MV3 CSP forbids
     loading it from a CDN). Loaded before `generic_scrape.js`/`sidebar.js`
     in `sidebar.html`, exposes the global `jspdf.jsPDF`.
   - `lib/format.js` — `capitalizeCategory(word)` ("cover_letter" -> "Cover
     Letter"), shared by `settings.js` and `sidebar.js` instead of each
     defining its own copy.
-- **server/** — local FastAPI server (`localhost:8000`), spawned on demand by
-  the native host, not run standalone by the user.
-  - `server.py` — routes: `/generate-review/*`, `/generate-writing/*`
-    (both job-queue style: `/start` returns a `job_id`, poll `/progress/{id}`
-    for `{stage, attempt, max_attempts, done}`), `/provider-defaults`,
-    sample list/upload/delete. `_run_review_job()`/`_run_writing_job()` are
-    both thin wrappers around one shared `_run_generation_job()` (resolve
-    credentials -> samples -> generate -> score -> refine loop -> write
-    output), supplying only their own samples category, prompt builder, and
-    output path/result key — used to be two independently hand-maintained
-    ~55-line copies of the same pipeline.
-  - `review_engine.py` — prompt building, provider dispatch (agy CLI,
-    Claude Code CLI, OpenRouter, Groq, local endpoint), AI-detection scoring
-    + rewrite loop, writing-sample loading. `SAMPLE_CATEGORIES` is the one
-    source of truth for style categories — each is a real directory under
-    `workspace/sample/<category>/`; the extension's category dropdown and
-    Settings sample panels both derive from it live via `GET /samples`
-    (see `extension/settings.js`/`sidebar.js` below), not a hardcoded copy.
-    Adding a category = adding a tuple entry + a folder, two places, not
-    four. `call_openrouter()`/`call_groq()`/`call_local()` all share one
-    `_call_chat_completions()` (same OpenAI-compatible shape, different
-    url/headers). `generate_review_text()`/`ai_score()` share one
-    `_dispatch_to_provider()` for the claude_code/openrouter/groq/local/agy
-    routing (only `ai_score()` passes `agy_effort="low"`).
-    `unique_review_path()`/`unique_writing_path()` share `_unique_path()`.
-  - `secrets_loader.py` — decrypts `config/secrets.enc.yaml` via sops/age for
-    default OpenRouter/Groq credentials (used when the extension's own
-    Settings page hasn't been filled in).
-  - `cli_path.py` — `resolve_cli_path(name)`: Chrome spawns native-messaging
-    hosts (and this managed server) with a minimal PATH missing
-    `~/.local/bin`/Homebrew, so a bare CLI lookup (`agy`, `claude`, `sops`)
-    that works from a shell fails under the extension. Shared by
-    `review_engine.py` (agy/claude) and `secrets_loader.py` (sops) — used
-    to be 3 separately hand-written copies of the same fallback logic.
-- **native-host/host.py** — native messaging host Chrome spawns; ensures
-  `server/server.py` is running (`--managed` mode), replies `{"status":
-  "ready"}`, then blocks on stdin until the extension disconnects.
-- **workspace/** — runtime data, not source: `review/`, `writing/` (generated
-  output text files), `sample/<category>/` (writing samples per style,
-  used for voice-matching).
-- **docs/** — `RULES.MD` (must-follow rules injected into every prompt) and
-  `MEMORY.MD` (persistent context injected into every prompt). Both are read
-  fresh per request in `server.py`.
-- **config/** — `secrets.enc.yaml` (sops/age-encrypted), `secrets.example.yaml`.
+- **workspace/** and **docs/** — orphaned by the Phase 1 redesign, not yet
+  migrated or deleted. `docs/RULES.MD`/`docs/MEMORY.MD` hold the user's real
+  prior rules/memory content; `workspace/sample/<category>/` holds the
+  user's real prior writing samples (17 files across 6 categories at time
+  of writing) — none of this has been copied into `chrome.storage` yet, so
+  Settings' new Rules & Memory / Writing Samples panels start empty until
+  the user manually re-enters it. `workspace/review/`, `workspace/writing/`
+  are historical generated-output archives, harmless to keep or delete.
+  See Carryover below for the known gap in this migration.
 
 ## Conventions
 
 - No build step / bundler / TypeScript — plain ES modules loaded via
-  `<script>` tags in the two HTML pages, plain Python with no framework
-  beyond FastAPI.
+  `<script type="module">` tags in the two HTML pages (`sidebar.js`/
+  `settings.js`; `content.js`/`generic_scrape.js`/`background.js`/
+  `lib/format.js`/`lib/jspdf.umd.min.js` stay classic scripts).
 - `chrome.scripting.executeScript({ func: ... })` targets (like
   `scrapePageContent`, `scrapeProductData`) must stay fully self-contained —
   no references to outer module-scope variables — since they're serialized
   and run in the page's own context. Nested helper functions inside them
   are fine.
 - New style/voice categories: add to `SAMPLE_CATEGORIES` in
-  `server/review_engine.py` + create `workspace/sample/<name>/.gitkeep`.
-  Two places, not four — `sidebar.html`'s `#category-select` and
-  `settings.js`'s sample panels both derive from `GET /samples` live now
-  (this used to be two more hand-copied lists; the `cover_letter` addition
-  once missed one of them and shipped a category with no upload panel —
-  that whole bug class is now structurally impossible, not just documented).
-- External provider calls never silently fall back to agy on failure — they
-  raise `ProviderCallError` so the UI surfaces the real error instead of
-  masking a misconfigured API key.
+  `extension/lib/samples_store.js`. One place, not two — `sidebar.html`'s
+  `#category-select` and `settings.js`'s sample panels both derive from
+  `listSampleCategories()` live now (the old two-hardcoded-lists pattern
+  once shipped a category with no upload panel — that whole bug class is
+  structurally impossible now, not just documented).
+- Provider calls (`callOpenRouter`/`callGroq`/`callLocal`) throw a real
+  `Error` on failure — no silent fallback to another provider, the UI
+  surfaces the actual error instead of masking a misconfigured API key.
 - Job-board hostname list in `generic_scrape.js` (`JOB_SITE_HOSTS`) and its
   selector shortlist (`JOB_SELECTORS`) are best-effort, not a registry kept
   perfectly in sync with site redesigns — the keyword-scored fallback exists
@@ -167,31 +162,79 @@ Read this file first. Update it after every implementation change.
 
 - `tests/browser/smoke_test.py` — the extension's automated test suite
   (`extractEmployer()`'s heuristics, Settings Profile round-trip,
-  category-select/sample-panel population, PDF export/pagination/filename,
-  panel tab-binding, cross-tab isolation). `pip install -r
-  tests/requirements-dev.txt && playwright install chromium`, then start
-  the server (`cd server && ../.venv/bin/python3 server.py`) — category-
-  select/sample panels are now fetched live, so this isn't fully self-
-  hosting the way it starts its own fixture server for the job-posting
-  pages — then `python3 tests/browser/smoke_test.py`. Fails fast with a
-  clear message if the server isn't reachable. Fixtures live in
+  category-select/sample-panel population from `chrome.storage`, PDF
+  export/pagination/filename, panel tab-binding, cross-tab isolation).
+  `pip install -r tests/requirements-dev.txt && playwright install
+  chromium`, then `python3 tests/browser/smoke_test.py` — fully
+  self-hosting now, no server to start first. Fixtures live in
   `tests/browser/fixtures/`.
-- `tests/server/` — Python `unittest` suite for `review_engine.py`/
-  `server.py`/`secrets_loader.py`/`cli_path.py` (provider dispatch,
-  `call_*` chat-completions shape, `_run_generation_job()`'s pipeline,
-  `unique_*_path()`, `resolve_cli_path()`). No server process or real
-  agy/claude/sops needed — everything's mocked. `python3 -m unittest
-  discover -s tests/server -v` from the repo root (needs `.venv`'s
-  `fastapi`/`requests` — use `.venv/bin/python3`).
-- `./setup.sh` — cross-platform install/package script.
+- `./setup.sh`, `./package.sh` — **not yet updated for Phase 1**: still
+  reference the deleted `server/`/`native-host/`/Python venv setup. See
+  Carryover below.
 - `./reload-extension.sh` — reload the unpacked extension in Chrome during dev.
-- `./package.sh` — package the extension for distribution.
 - Manual check after any extension change: `chrome://extensions` → reload →
   open a product page (Review mode) or any page (General mode) → Generate.
-- Server has no standalone entrypoint for normal use; it's spawned by the
-  native host. For direct debugging: `python server/server.py` from `server/`.
 
 ## Carryover
+
+- 2026-09-23 (done): redesign Phase 1 — dropped agy/Claude Code CLI
+  providers, went pure API + local-model-endpoint only. Dispatched as 16
+  TriAPI queue tasks (13 planned + 3 addenda found mid-work: settings.js's
+  sample-manager UI, sidebar.js's `populateCategorySelect()`/
+  `initProviderSelect()` still hitting the doomed server) via
+  `python3 -m scripts.task_queue` from TriAPI's `rebuild/` (the `triapi`
+  CLI wrapper was missing on this Mac — installed via
+  `packaging/triapi-wrapper/install.sh`, see TriAPI's own AGENTS.md).
+  DeepSeek off-peak throughout (peak is 01:00-04:00 UTC), total dispatch
+  cost ~$0.004. `.codegraph/` initialized first per TriAPI's hard rule
+  (blocked once on a stale Homebrew `node`/`llhttp` link, fixed with
+  `brew reinstall node`, unrelated to either repo).
+
+  Shipped: `extension/lib/provider_client.js` (`callChatCompletions` +
+  `callOpenRouter`/`callGroq`/`callLocal` + `aiScore`), `prompt_builders.js`
+  (4 pure builders), `generation_pipeline.js` (`runGenerationPipeline()`,
+  the one shared generate→score→refine loop), `samples_store.js`
+  (`chrome.storage`-backed sample CRUD). `sidebar.js`/`settings.js`
+  converted to ES modules; `generateReview()`/`generateWriting()`/
+  `populateCategorySelect()`/settings' sample manager all rewired off
+  `fetch("http://localhost:8000/...")`. `native-host/`, `server/`,
+  `tests/server/`, `config/` (`secrets.enc.yaml`+`secrets.example.yaml`),
+  `.sops.yaml` deleted by hand (not via agy — see below). `smoke_test.py`
+  no longer needs the server; gained a chrome.storage category check.
+
+  Caught mid-session, fixed before landing: (1) agy directly edited 2
+  files on disk during dispatch despite its documented reply-only
+  contract (recorded in TriAPI's own AGENTS.md) — file deletions and
+  later agy-adjacent edits were done by hand instead, not trusted to
+  agy unsupervised. (2) `sidebar.js`/`settings.js` needed `<script
+  type="module">` — the plan hadn't accounted for classic-script-only
+  loading. (3) Module-scoped `scrapeActiveTab`/`exportCoverLetterPdf`
+  stopped being `window` properties once modularized, breaking
+  `smoke_test.py`'s `page.evaluate("() => window.X()")` calls — fixed
+  with explicit `window.X = X` hooks. (4) Task 11 wrongly dropped the
+  `http://localhost/*` host_permission as "server-only" — it's also
+  needed by `smoke_test.py`'s real `chrome.scripting.executeScript`
+  path against the fixture server; restored.
+
+  **Known gaps, not fixed this session:**
+  - **User data not migrated.** `docs/RULES.MD`/`docs/MEMORY.MD`'s real
+    content and `workspace/sample/`'s 17 real writing-sample files were
+    never copied into `chrome.storage` — Settings' new Rules & Memory /
+    Writing Samples panels start empty. Manual re-entry needed before
+    generation quality matches the pre-redesign flow.
+  - **Root-level "always included" sample files dropped.** The old
+    `read_samples()` always prepended root-level files directly in
+    `workspace/sample/` (e.g. `Writing guide.md`) to every category,
+    regardless of which category was selected. `samples_store.js` has no
+    equivalent — and `docs/RULES.MD` rule #1 explicitly depends on this
+    ("Strictly follow the instructions in 'Writing guide.md', always
+    included first"). Needs a real fix (e.g. an "always include" flag
+    per sample, or a dedicated always-on slot), not just re-uploading
+    the file into every category by hand.
+  - `setup.sh`, `package.sh`, `README.md` still reference the deleted
+    `server/`/`native-host/`/Python venv — not updated, will mislead
+    a fresh install. `workspace/`, `docs/` left on disk (real content,
+    not deleted) but now orphaned relative to the new client-only flow.
 
 - 2026-09-22 (done, user-reported): the tab-scoping fix's strict
   "`boundTabId === null` -> refuse to act at all" design (see the
@@ -567,47 +610,24 @@ Read this file first. Update it after every implementation change.
   `workspace/sample/cover_letter/` (folder created, empty) — quality will
   be generic until the user drops some in via Settings.
 
-- **Next item (not started): extension redesign master plan.** Five
+- **Next item (in progress): extension redesign master plan.** Five
   workstreams from a 2026-09-22 afternoon design discussion, consolidated
   here per doc hygiene (plans live in this file, not a separate one).
   Sequencing matters — see dependency notes on each item before picking
   one to start.
 
-  - **Sequencing.** Do (1) first: it reshapes `providerSettings` and
-    where samples/rules/memory live, which (2) and (3) also touch —
-    doing those first means redoing them. (4) is independent, safe to
-    do anytime. (5) should come **after** (1)–(3) land: redesigning UI
-    around a data model that's about to change wastes the design work.
-    Recommended order: (1) → (2) → (3) → (4) → (5), or (4) done
-    opportunistically in parallel since it doesn't touch shared state.
+  - **Sequencing.** (1) is done (2026-09-23, see Carryover). (2) and (3)
+    build on its `providerSettings`/samples/rules/memory data model. (4)
+    is independent, safe to do anytime. (5) should come **after** (1)–(3)
+    land: redesigning UI around a data model that's about to change
+    wastes the design work. Recommended order: (2) → (3) → (4) → (5), or
+    (4) done opportunistically in parallel since it doesn't touch shared
+    state.
 
   - **(1) Drop agy/Claude Code CLI providers, go pure API + local-model-
-    endpoint only.** Deletes entirely: `native-host/host.py` (153
-    lines), `server/server.py` (321), `server/secrets_loader.py` (58),
-    `server/cli_path.py` (21), `tests/server/*.py` (365),
-    `config/secrets.enc.yaml`, `.sops.yaml`, `server/requirements.txt`
-    — ~1,345 lines gone, Python and `sops` no longer project
-    dependencies at all. `review_engine.py`'s CLI-specific ~150-180
-    lines (`run_agy`, `run_claude_code`, `_parse_agy_json`, CLI
-    branches in `_dispatch_to_provider`) also just vanish; its
-    remaining logic (prompt builders, `ai_score`/refine-loop
-    orchestration, sample management) gets ported to `sidebar.js` as
-    plain `fetch()` calls, not duplicated across languages. Samples +
-    `RULES.MD`/`MEMORY.MD` move from `workspace/`/`docs/` files to
-    `chrome.storage`/IndexedDB, edited via a Settings UI instead of a
-    text editor (`RULES.MD`/`MEMORY.MD` editing was previously a plain-
-    file workflow — this is a real, not free, downgrade for that
-    habit). Local-model calls become direct `fetch()` from the
-    extension to the user's endpoint, needing `optional_host_permissions`
-    requested at runtime (the endpoint is user-configurable, so it
-    can't be a fixed `host_permissions` entry). **Why:** per the user's
-    own code policy ("the best line of code is the one you don't write
-    at all") — this isn't marginal cleanup, it removes whole classes of
-    risk this session repeatedly hit: cross-language duplication (the
-    `SAMPLE_CATEGORIES` bug class), Chrome's minimal-PATH subprocess
-    issues (`cli_path.py` existed only for this), and stale-long-lived-
-    process bugs (the managed-server staleness gotcha from this same
-    session) — structurally impossible with no separate server process.
+    endpoint only — DONE 2026-09-23.** See Carryover below for the full
+    dispatch record and known gaps (sample/rules/memory data migration
+    not done, `setup.sh`/`package.sh`/`README.md` not updated).
   - **(2) Personalization file** (a background "about me" text blob).
     Extends the existing `RULES.MD`/`MEMORY.MD` context-injection
     (`build_context()`) as a third injected context source — not a new
