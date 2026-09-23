@@ -117,6 +117,39 @@ p {
 
 /* ---------- Provider rows ---------- */
 
+label[for="generation-provider-select"],
+label[for="scoring-provider-select"] {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+#generation-provider-select,
+#scoring-provider-select {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#generation-provider-select:focus,
+#scoring-provider-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+#scoring-provider-select {
+  margin-bottom: var(--space-2);
+}
+
 .provider-row {
   display: flex;
   flex-direction: column;
@@ -128,35 +161,15 @@ p {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.provider-row:has(input[type="radio"]:checked) {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-soft);
-}
-
-.provider-row input[type="radio"] {
-  position: absolute;
-  top: 18px;
-  left: 16px;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--color-primary);
-  cursor: pointer;
-}
-
 .provider-row label {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
 
-.provider-row label[for="provider-agy"],
-.provider-row label[for="provider-openrouter"],
-.provider-row label[for="provider-groq"],
-.provider-row label[for="provider-local"] {
+.provider-row .provider-name-label {
   font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--color-text);
-  margin-left: 26px;
   cursor: pointer;
 }
 
@@ -380,3 +393,4 @@ p {
   margin-top: var(--space-2);
   min-height: 0;
 }
+

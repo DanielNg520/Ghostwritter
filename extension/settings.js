@@ -1,8 +1,7 @@
 import { listSampleCategories, listSamples, saveSample, deleteSample } from './lib/samples_store.js';
 
-const providerOpenrouter = document.getElementById('provider-openrouter');
-const providerGroq = document.getElementById('provider-groq');
-const providerLocal = document.getElementById('provider-local');
+const generationProviderSelect = document.getElementById('generation-provider-select');
+const scoringProviderSelect = document.getElementById('scoring-provider-select');
 const localEndpoint = document.getElementById('local-endpoint');
 const localModel = document.getElementById('local-model');
 const localApiKey = document.getElementById('local-api-key');
@@ -15,17 +14,9 @@ const settingsStatus = document.getElementById('settings-status');
 
 chrome.storage.local.get('providerSettings').then((result) => {
   const settings = result.providerSettings;
-  const activeProvider = settings?.activeProvider;
 
-  if (activeProvider === 'openrouter') {
-    providerOpenrouter.checked = true;
-  } else if (activeProvider === 'groq') {
-    providerGroq.checked = true;
-  } else if (activeProvider === 'local') {
-    providerLocal.checked = true;
-  } else {
-    providerOpenrouter.checked = true;
-  }
+  generationProviderSelect.value = settings?.generationProvider || 'openrouter';
+  scoringProviderSelect.value = settings?.scoringProvider || 'openrouter';
 
   openrouterApiKey.value = settings?.openrouter?.apiKey ?? '';
   openrouterModel.value = settings?.openrouter?.model ?? '';
@@ -37,10 +28,9 @@ chrome.storage.local.get('providerSettings').then((result) => {
 });
 
 saveBtn.addEventListener('click', () => {
-  const activeProvider = document.querySelector('input[name="provider"]:checked').value;
-
   const providerSettings = {
-    activeProvider,
+    generationProvider: generationProviderSelect.value,
+    scoringProvider: scoringProviderSelect.value,
     openrouter: {
       apiKey: openrouterApiKey.value,
       model: openrouterModel.value,

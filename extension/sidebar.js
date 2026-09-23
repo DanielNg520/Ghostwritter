@@ -103,14 +103,14 @@ async function initProviderSelect() {
     option.textContent = option.textContent.replace(/ — not set up$/, "") + (isAvailable ? "" : " — not set up");
   }
 
-  const saved = providerSettings?.activeProvider;
+  const saved = providerSettings?.generationProvider;
   providerSelect.value = available[saved] ? saved : "openrouter";
 }
 
 providerSelect.addEventListener("change", async () => {
   const { providerSettings } = await chrome.storage.local.get("providerSettings");
   await chrome.storage.local.set({
-    providerSettings: { ...providerSettings, activeProvider: providerSelect.value },
+    providerSettings: { ...providerSettings, generationProvider: providerSelect.value },
   });
 });
 
@@ -208,9 +208,7 @@ settingsBtn.addEventListener("click", () => {
 // provider to use — it's kept in sync with chrome.storage on every change
 // (see initProviderSelect() above), but reading it directly here means a
 // mid-session switch takes effect on the very next click with no reload.
-async function getProviderSettings() {
-  const { providerSettings } = await chrome.storage.local.get("providerSettings");
-  const provider = providerSelect.value || providerSettings?.activeProvider || "openrouter";
+function resolveProviderConfig(providerSettings, provider) {
   const apiKey =
     provider === "openrouter" ? providerSettings?.openrouter?.apiKey ?? "" :
     provider === "groq" ? providerSettings?.groq?.apiKey ?? "" :
@@ -222,7 +220,17 @@ async function getProviderSettings() {
   const endpoint =
     provider === "local" ? providerSettings?.local?.endpoint ?? "" : "";
 
-  return { provider, apiKey, model, endpoint };
+  return { apiKey, model, endpoint };
+}
+
+async function getProviderSettings() {
+  const { providerSettings } = await chrome.storage.local.get("providerSettings");
+  const generationProvider = providerSelect.value || providerSettings?.generationProvider || "openrouter";
+  const generationConfig = resolveProviderConfig(providerSettings, generationProvider);
+  const scoringProvider = providerSettings?.scoringProvider || generationProvider;
+  const scoringConfig = resolveProviderConfig(providerSettings, scoringProvider);
+
+  return { generationProvider, generationConfig, scoringProvider, scoringConfig };
 }
 
 async function generateReview() {
@@ -235,8 +243,7 @@ async function generateReview() {
   });
 
   const comment = commentInput.value;
-  const { provider, apiKey, model, endpoint } = await getProviderSettings();
-  const config = { apiKey, model, endpoint };
+  const { generationProvider, generationConfig, scoringProvider, scoringConfig } = await getProviderSettings();
 
   const { rulesText, memoryText, personalizationText } = await chrome.storage.local.get(["rulesText", "memoryText", "personalizationText"]);
   const contextBlock = buildContext(rulesText || "", memoryText || "", personalizationText || "");
@@ -248,8 +255,10 @@ async function generateReview() {
   const { text } = await runGenerationPipeline({
     prompt,
     contextBlock,
-    provider,
-    config,
+    generationProvider,
+    generationConfig,
+    scoringProvider,
+    scoringConfig,
     onStage: (stage, attempt) => renderStage(stage, attempt ?? 0, MAX_REFINE_ATTEMPTS),
   });
 
@@ -266,8 +275,7 @@ async function generateWriting() {
 
   const userPrompt = promptInput.value;
   const category = categorySelect.value;
-  const { provider, apiKey, model, endpoint } = await getProviderSettings();
-  const config = { apiKey, model, endpoint };
+  const { generationProvider, generationConfig, scoringProvider, scoringConfig } = await getProviderSettings();
 
   const { rulesText, memoryText, personalizationText } = await chrome.storage.local.get(["rulesText", "memoryText", "personalizationText"]);
   const contextBlock = buildContext(rulesText || "", memoryText || "", personalizationText || "");
@@ -279,8 +287,10 @@ async function generateWriting() {
   const { text: resultText } = await runGenerationPipeline({
     prompt,
     contextBlock,
-    provider,
-    config,
+    generationProvider,
+    generationConfig,
+    scoringProvider,
+    scoringConfig,
     onStage: (stage, attempt) => renderStage(stage, attempt ?? 0, MAX_REFINE_ATTEMPTS),
   });
 

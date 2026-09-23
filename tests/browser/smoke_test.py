@@ -164,6 +164,21 @@ def main():
         settings.wait_for_timeout(500)
         check("Personalization field repopulates on reload",
               settings.input_value("#personalization-text") == "I'm a backend engineer switching to product management.")
+
+        # ---- settings.html: provider role selects round-trip ----
+        settings.select_option("#generation-provider-select", "groq")
+        settings.select_option("#scoring-provider-select", "local")
+        settings.click("#save-btn")
+        settings.wait_for_timeout(300)
+        stored_prov = settings.evaluate("() => chrome.storage.local.get('providerSettings')")
+        check("providerSettings persisted with independent generation/scoring roles",
+              stored_prov.get("providerSettings", {}).get("generationProvider") == "groq"
+              and stored_prov.get("providerSettings", {}).get("scoringProvider") == "local", stored_prov)
+        settings.reload()
+        settings.wait_for_timeout(500)
+        check("Provider selects repopulate on reload",
+              settings.input_value("#generation-provider-select") == "groq"
+              and settings.input_value("#scoring-provider-select") == "local")
         settings.close()
 
         # ---- lib/prompt_builders.js: buildContext() injects all three blocks ----
@@ -182,6 +197,48 @@ def main():
               "RULE_X" in context_block and "MEMORY_Y" in context_block and "ABOUT_Z" in context_block
               and "ABOUT ME" in context_block, context_block)
         probe.close()
+
+        # ---- lib/generation_pipeline.js: generation and scoring dispatch to independent provider configs ----
+        pipeline_probe = ctx.new_page()
+        pipeline_probe.goto(f"chrome-extension://{ext_id}/sidebar.html?tabId=1")
+        pipeline_probe.wait_for_timeout(400)
+        pipeline_result = pipeline_probe.evaluate(
+            """async () => {
+                const origFetch = window.fetch;
+                const seenUrls = [];
+                window.fetch = (url) => {
+                    seenUrls.push(url);
+                    const body = url.includes('generate')
+                        ? { choices: [{ message: { content: 'GENERATED_TEXT' } }] }
+                        : { choices: [{ message: { content: '7' } }] };
+                    return Promise.resolve(new Response(JSON.stringify(body), {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' }
+                    }));
+                };
+                try {
+                    const mod = await import(chrome.runtime.getURL('lib/generation_pipeline.js'));
+                    return await mod.runGenerationPipeline({
+                        prompt: 'p',
+                        contextBlock: '',
+                        generationProvider: 'local',
+                        generationConfig: { endpoint: 'http://gw-fake/generate', model: 'm' },
+                        scoringProvider: 'local',
+                        scoringConfig: { endpoint: 'http://gw-fake/score', model: 'm' },
+                        onStage: () => {}
+                    }).then(result => ({ text: result.text, score: result.score, seenUrls }));
+                } finally {
+                    window.fetch = origFetch;
+                }
+            }"""
+        )
+        check("runGenerationPipeline dispatches generation to generationConfig endpoint",
+              pipeline_result["text"] == "GENERATED_TEXT"
+              and "http://gw-fake/generate" in pipeline_result["seenUrls"], pipeline_result)
+        check("runGenerationPipeline dispatches scoring to scoringConfig endpoint",
+              pipeline_result["score"] == 7
+              and "http://gw-fake/score" in pipeline_result["seenUrls"], pipeline_result)
+        pipeline_probe.close()
 
         # ---- sidebar.html: panel behavior ----
         # A panel restored by Chrome on relaunch (no fresh toolbar click, so

@@ -13,11 +13,24 @@
 
   <section class="settings-section">
     <h2 class="section-title">Provider</h2>
-    <p>Choose which AI generates your reviews. Fill in an API key and model for OpenRouter or Groq, or an endpoint and model for a local model server. If a provider's API call fails, that error is shown directly.</p>
+    <p>Choose which AI generates your text and which scores it. Fill in an API key and model for OpenRouter or Groq, or an endpoint and model for a local model server below. If a provider's API call fails, that error is shown directly.</p>
+
+    <label for="generation-provider-select">Generate with</label>
+    <select id="generation-provider-select">
+      <option value="openrouter">OpenRouter</option>
+      <option value="groq">Groq</option>
+      <option value="local">Local model</option>
+    </select>
+
+    <label for="scoring-provider-select">Score with</label>
+    <select id="scoring-provider-select">
+      <option value="openrouter">OpenRouter</option>
+      <option value="groq">Groq</option>
+      <option value="local">Local model</option>
+    </select>
 
     <div class="provider-row">
-      <input type="radio" name="provider" value="openrouter" id="provider-openrouter">
-      <label for="provider-openrouter">OpenRouter</label>
+      <span class="provider-name-label">OpenRouter</span>
       <label for="openrouter-api-key">API Key</label>
       <input type="password" id="openrouter-api-key" placeholder="API key">
       <label for="openrouter-model">Model Slug</label>
@@ -25,8 +38,7 @@
     </div>
 
     <div class="provider-row">
-      <input type="radio" name="provider" value="groq" id="provider-groq">
-      <label for="provider-groq">Groq</label>
+      <span class="provider-name-label">Groq</span>
       <label for="groq-api-key">API Key</label>
       <input type="password" id="groq-api-key" placeholder="API key">
       <label for="groq-model">Model Slug</label>
@@ -34,8 +46,7 @@
     </div>
 
     <div class="provider-row">
-      <input type="radio" name="provider" value="local" id="provider-local">
-      <label for="provider-local">Local model</label>
+      <span class="provider-name-label">Local model</span>
       <label for="local-endpoint">Endpoint URL</label>
       <input type="text" id="local-endpoint" placeholder="e.g. http://localhost:11434/v1/chat/completions">
       <label for="local-model">Model Slug</label>

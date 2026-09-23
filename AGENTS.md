@@ -184,6 +184,39 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
+- 2026-09-23 (done): redesign Phase 3 — local + API dual-provider
+  workflow. `providerSettings` in `chrome.storage.local` now stores
+  `generationProvider`/`scoringProvider` independently (each
+  `openrouter|groq|local`) instead of one `activeProvider` — lets the
+  cheap, repeated AI-detection scoring pass run on a local model while
+  generation stays on a cloud API. `lib/generation_pipeline.js`'s
+  `runGenerationPipeline()` takes separate `generationProvider`/
+  `generationConfig` and `scoringProvider`/`scoringConfig` (generate/
+  refine calls use the former, `aiScore()` calls use the latter) — same
+  one shared pipeline function, no new orchestration path. Settings has
+  two role `<select>`s ("Generate with"/"Score with") above the existing
+  per-provider credential rows (radios removed, rows are no longer
+  mutually exclusive). `sidebar.js`'s `#provider-select` quick-switcher
+  still means "generation provider" only; scoring provider is
+  Settings-only, defaulting to whatever's generating if unset.
+  Audited the seam first (this exact single-provider `runGenerationPipeline`
+  call site, confirmed via `lib/generation_pipeline.js`/`sidebar.js`
+  read-through) before touching anything, per the user's "no blind
+  addition" policy. Dispatched as 6 TriAPI queue tasks (2 agy markup/
+  style, 4 deepseek logic) via `~/Documents/Coding/TriAPI/rebuild`'s
+  `task_queue.py`/`call_deepseek.py`/`call_agy.py` — **not**
+  `~/Developer/TriAPI` (doesn't exist) or the stale Google Drive TriAPI
+  copy; see that repo's own AGENTS.md carryover and this session's saved
+  memory for the location audit. One real DeepSeek bug caught in audit:
+  the smoke-test addendum task referenced a `panel` page object that
+  isn't created until later in the file at its chosen insertion point —
+  fixed by opening a dedicated `pipeline_probe` page instead of applying
+  verbatim. Verified with `tests/browser/smoke_test.py`: 4 new checks
+  (Settings round-trip for both role selects, and
+  `runGenerationPipeline()` proven via a stubbed `window.fetch` to
+  dispatch generation and scoring to two distinct endpoints, not an
+  aliased single call) — 37/37 passing, no regressions.
+
 - 2026-09-23 (done): redesign Phase 2 — personalization file. Added
   `personalizationText` to `chrome.storage.local` alongside `rulesText`/
   `memoryText`, one new textarea in Settings' existing Rules & Memory
@@ -642,13 +675,12 @@ Read this file first. Update it after every implementation change.
   Sequencing matters — see dependency notes on each item before picking
   one to start.
 
-  - **Sequencing.** (1) and (2) are done (see Carryover). (3) builds on
-    (1)'s `providerSettings`/samples/rules/memory data model. (4) is
+  - **Sequencing.** (1), (2), and (3) are done (see Carryover). (4) is
     independent, safe to do anytime. (5) should come **after** (1)–(3)
     land: redesigning UI around a data model that's about to change
-    wastes the design work. Recommended order: (3) → (4) → (5), or
-    (4) done opportunistically in parallel since it doesn't touch shared
-    state.
+    wastes the design work — that condition is now satisfied. Recommended
+    order: (4) → (5), or (4) done opportunistically in parallel with (5)
+    since it doesn't touch shared state.
 
   - **(1) Drop agy/Claude Code CLI providers, go pure API + local-model-
     endpoint only — DONE 2026-09-23.** See Carryover below for the full
@@ -656,14 +688,8 @@ Read this file first. Update it after every implementation change.
     not done, `setup.sh`/`package.sh`/`README.md` not updated).
   - **(2) Personalization file** (a background "about me" text blob) —
     **DONE 2026-09-23.** See Carryover below.
-  - **(3) Local + API dual-provider workflow.** Reuses the existing
-    `generate_review_text()`/`ai_score()` split (already two separate
-    calls) instead of introducing new orchestration: let the cheap,
-    repeated AI-detection scoring pass use the local model while the
-    real generation uses the cloud API. Needs `providerSettings`
-    restructured from one `activeProvider` to two slots (generation
-    provider, scoring provider) — do this as part of (1)'s data-model
-    change, not a second migration.
+  - **(3) Local + API dual-provider workflow — DONE 2026-09-23.** See
+    Carryover below for the full dispatch record.
   - **(4) True single-tab panel attachment (visibility, not just
     content).** Gap in the existing tab-scoping work: `boundTabId`/
     `resolveTargetTabId()` already scope which tab the panel *reads*,
