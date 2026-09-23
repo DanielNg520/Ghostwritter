@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Builds a clean, portable zip of this repo for moving to another machine
-# (e.g. a Fedora box). Excludes the venv (OS/arch-specific — setup.sh
-# rebuilds it on the target machine), __pycache__, and .git, but keeps
-# everything else including your personal docs/RULES.MD, docs/MEMORY.MD,
-# workspace/sample/*, and config/secrets.enc.yaml (still encrypted).
+# Builds a clean, portable zip of the extension source for moving to another
+# machine. Excludes .venv, __pycache__ and .git. Rules/memory/samples/API keys
+# live in the browser's chrome.storage, not in the repo — they don't travel
+# with this zip (re-enter them in Settings or use Settings -> Import Backup).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,4 +24,4 @@ echo ""
 echo "On the target machine:"
 echo "  unzip ${OUT}"
 echo "  cd ${REPO_NAME}"
-echo "  ./setup.sh"
+echo "  chrome://extensions -> Developer mode -> Load unpacked -> ${REPO_NAME}/extension"

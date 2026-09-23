@@ -133,6 +133,9 @@ def main():
         r = scrape("fake_job_monster_bare.html")
         check("og:site_name rejected ('Monster Jobs', brand + generic suffix, anchored)", r.get("employer") is None, r.get("employer"))
 
+        r = scrape("fake_product_requirements.html")
+        check("repeating one job keyword ('requirements') on a product page is not a job", r.get("siteType") == "general", r.get("siteType"))
+
         # ---- settings.html: Profile save/load round-trip ----
         settings = ctx.new_page()
         settings.goto(f"chrome-extension://{ext_id}/settings.html")
@@ -275,10 +278,16 @@ def main():
 
         option_values = panel.eval_on_selector_all("#category-select option", "opts => opts.map(o => o.value)")
         check("category-select populated from chrome.storage (no server)",
-              option_values == ["formal", "casual", "academic", "creative", "narrative", "technical", "review", "cover_letter"],
+              option_values == ["formal", "casual", "academic", "creative", "narrative", "technical", "review", "cover_letter"],  # always_included is not a style category
               option_values)
 
+        check("result-section hidden before any generation", panel.is_hidden("#result-section"))
         panel.click("#mode-general-btn")
+        panel.select_option("#category-select", "formal")
+        check("employer-field hidden for non-cover-letter category", panel.is_hidden("#employer-field"))
+        panel.select_option("#category-select", "cover_letter")
+        check("employer-field shown for cover_letter category", panel.is_visible("#employer-field"))
+        check("step strip starts on Setup", panel.evaluate("() => document.querySelector('.step.active')?.dataset.step") == "setup")
         panel.evaluate("() => { document.getElementById('export-pdf-btn').hidden = false; }")
         panel.select_option("#category-select", "formal")
         panel.wait_for_timeout(100)
@@ -301,6 +310,45 @@ def main():
         check("PDF is valid and multi-page (pagination triggered)", pdf_bytes[:5] == b"%PDF-" and (b"/Type /Page" in pdf_bytes or b"/Type/Page" in pdf_bytes))
         panel.close()
 
+        # ---- Import Backup + always-included samples ----
+        imp = ctx.new_page()
+        imp.goto(f"chrome-extension://{ext_id}/settings.html")
+        imp.wait_for_timeout(400)
+        backup = Path("/tmp") / "ghostwriter_smoke_import.json"
+        backup.write_text(json.dumps({"rulesText": "R!", "samples": {"always_included": {"guide.md": "GUIDE"}, "formal": {"f.md": "FORMAL"}}}))
+        imp.set_input_files("#import-file", str(backup))
+        imp.wait_for_timeout(1200)
+        st = imp.evaluate("() => chrome.storage.local.get(['rulesText','samples'])")
+        check("Import Backup writes rules and samples", st.get("rulesText") == "R!" and st["samples"]["formal"]["f.md"] == "FORMAL", st)
+        check("Settings shows an Always Included panel", imp.locator("#samples-list-always_included").count() == 1)
+        txt = imp.evaluate("async () => (await import('./lib/samples_store.js')).readSamplesText('formal')")
+        check("readSamplesText prepends always_included samples", txt.startswith("--- guide.md ---\nGUIDE") and "FORMAL" in txt, txt)
+        check("Setup status lists imported rules as set", "Rules: set" in imp.locator("#status-list").inner_text(), imp.locator("#status-list").inner_text())
+        check("Setup status flags missing provider key", "no model, no key" in imp.locator("#status-list").inner_text(), imp.locator("#status-list").inner_text())
+        imp.close()
+
+        # ---- reasoning effort is sent only when set ----
+        eff = ctx.new_page()
+        eff.goto(f"chrome-extension://{ext_id}/settings.html")
+        bodies = eff.evaluate("""async () => {
+          const { callChatCompletions } = await import('./lib/provider_client.js');
+          const seen = [];
+          window.fetch = async (u, o) => { seen.push(JSON.parse(o.body)); return { ok: true, json: async () => ({ choices: [{ message: { content: 'x' } }] }) }; };
+          await callChatCompletions('http://x', {}, 'm', 'p', 'low');
+          await callChatCompletions('http://x', {}, 'm', 'p', '');
+          return seen;
+        }""")
+        check("reasoning_effort sent when set, omitted when empty", bodies[0].get("reasoning_effort") == "low" and "reasoning_effort" not in bodies[1], bodies)
+        msg = eff.evaluate("""async () => {
+          const { runGenerationPipeline } = await import('./lib/generation_pipeline.js');
+          try {
+            await runGenerationPipeline({ prompt: 'p', contextBlock: '', generationProvider: 'local', generationConfig: { endpoint: 'http://x', model: 'm' }, scoringProvider: 'openrouter', scoringConfig: { apiKey: '', model: '' }, onStage: () => {} });
+          } catch (e) { return e.message; }
+          return 'no error';
+        }""")
+        check("pipeline refuses an unconfigured scoring provider before any request", "scoring provider (openrouter) isn't set up" in msg, msg)
+        eff.close()
+
         # ---- cross-tab isolation: the actual security property ----
         tab_a = ctx.new_page()
         tab_a.goto(f"http://localhost:{HTTP_PORT}/fake_job.html")
@@ -322,6 +370,25 @@ def main():
         check("panel bound to tab A reads tab A even though another tab is frontmost",
               scraped is not None and scraped.get("employer") == "Acme Corporation", scraped)
         bound_panel.close()
+
+        # ---- panel visibility scoping: onActivated disables non-bound tabs ----
+        opts_a = sw.evaluate("(id) => chrome.sidePanel.getOptions({ tabId: id })", tab_a_id)
+        opts_b = sw.evaluate(
+            "(id) => chrome.sidePanel.getOptions({ tabId: id })",
+            next(t["id"] for t in tabs if t["url"] and "fake_job2.html" in t["url"]),
+        )
+        check("non-bound tab A disabled after activation churn", opts_a.get("enabled") is False, opts_a)
+        check("non-bound tab B disabled (never went through toolbar click)", opts_b.get("enabled") is False, opts_b)
+
+        # bound tab must survive activation churn (also covers SW restarts: no in-memory state)
+        sw.evaluate("(id) => chrome.sidePanel.setOptions({ tabId: id, path: `sidebar.html?tabId=${id}`, enabled: true })", tab_a_id)
+        tab_a.bring_to_front()
+        tab_b.bring_to_front()
+        tab_a.bring_to_front()
+        tab_a.wait_for_timeout(300)
+        opts_a2 = sw.evaluate("(id) => chrome.sidePanel.getOptions({ tabId: id })", tab_a_id)
+        check("bound tab A stays enabled across activation churn", opts_a2.get("enabled") is True, opts_a2)
+
         tab_a.close()
         tab_b.close()
 

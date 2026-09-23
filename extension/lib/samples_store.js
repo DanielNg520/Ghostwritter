@@ -1,5 +1,9 @@
 export const SAMPLE_CATEGORIES = ["formal", "casual", "academic", "creative", "narrative", "technical", "review", "cover_letter"];
 
+// Not a style category: its samples are prepended to every category's text
+// (replaces the old root-level workspace/sample/*.md "always included" files).
+export const ALWAYS_CATEGORY = "always_included";
+
 const SAMPLES_CHAR_LIMIT = 60000;
 
 function sanitizeFilename(name) {
@@ -9,7 +13,7 @@ function sanitizeFilename(name) {
 }
 
 export async function listSampleCategories() {
-  return SAMPLE_CATEGORIES;
+  return [...SAMPLE_CATEGORIES, ALWAYS_CATEGORY];
 }
 
 export async function listSamples(category) {
@@ -45,6 +49,8 @@ export async function readSamplesText(category) {
   const entries = [];
   let totalLen = 0;
   let omitted = false;
+  const always = category === ALWAYS_CATEGORY ? {} : samples[ALWAYS_CATEGORY] || {};
+  const alwaysEntries = Object.entries(always).filter(([, c]) => c).map(([f, c]) => `--- ${f} ---\n${c}`);
   const categorySamples = samples[category] || {};
   for (const filename of Object.keys(categorySamples)) {
     const content = categorySamples[filename];
@@ -60,5 +66,5 @@ export async function readSamplesText(category) {
   if (omitted) {
     entries.push('[additional samples omitted for length]');
   }
-  return entries.join('\n\n');
+  return [...alwaysEntries, ...entries].join('\n\n');
 }

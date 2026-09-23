@@ -1,14 +1,24 @@
 chrome.action.onClicked.addListener((tab) => {
-  // open() must run synchronously within this click handler -- Chrome
-  // requires it to be called inside the user-gesture call stack, and
-  // awaiting setOptions() first risks losing that window. setOptions() is
-  // fired right after instead: both calls reach Chrome's extension IPC in
-  // the order sent, so the tab-scoped path lands before the panel content
-  // actually renders, without blocking on the gesture-sensitive open().
-  chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
-    console.log("Ghost Writer: sidePanel.open() failed", err);
-  });
+  // Both calls are fired without awaiting (awaiting risks losing the user
+  // gesture open() needs). setOptions() goes first so a tab previously
+  // disabled by the onActivated listener below is re-enabled before open().
   chrome.sidePanel.setOptions({ tabId: tab.id, path: `sidebar.html?tabId=${tab.id}`, enabled: true }).catch((err) => {
     console.log("Ghost Writer: sidePanel.setOptions() failed", err);
   });
+  chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
+    console.log("Ghost Writer: sidePanel.open() failed", err);
+  });
+});
+
+// Stateless on purpose: the service worker is killed when idle, so an
+// in-memory "bound tabs" set would be empty on wake-up and wrongly disable a
+// bound tab. A tab is bound iff its per-tab options path carries its own id.
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  try {
+    const { path } = await chrome.sidePanel.getOptions({ tabId });
+    if (path && path.endsWith(`?tabId=${tabId}`)) return;
+    await chrome.sidePanel.setOptions({ tabId, enabled: false });
+  } catch (err) {
+    console.log("Ghost Writer: onActivated handler failed", err);
+  }
 });

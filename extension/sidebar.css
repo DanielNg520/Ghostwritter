@@ -76,6 +76,20 @@ body {
   gap: var(--space-4);
 }
 
+/* ---------- Accessibility utility ---------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---------- Header ---------- */
 
 #header-bar {
@@ -168,52 +182,39 @@ label {
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12);
 }
 
-/* ---------- Provider quick-switch ---------- */
+/* ---------- Step strip ---------- */
 
-#provider-row {
+#step-strip {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
-  background-color: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  box-shadow: var(--shadow-sm);
 }
 
-#provider-row label {
-  margin-bottom: 0;
-  white-space: nowrap;
-}
-
-#provider-select {
-  appearance: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background-color: var(--color-surface);
-  background-image: linear-gradient(45deg, transparent 50%, var(--color-text-muted) 50%),
-    linear-gradient(135deg, var(--color-text-muted) 50%, transparent 50%);
-  background-position: calc(100% - 14px) center, calc(100% - 9px) center;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  color: var(--color-text);
-  font-family: inherit;
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: 5px 26px 5px 8px;
-  cursor: pointer;
-  max-width: 60%;
-}
-
-#provider-select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-soft);
-}
-
-#provider-select option:disabled {
+  font-weight: 500;
   color: var(--color-text-muted);
+  padding: 3px 8px;
+  border-radius: 999px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.step.active {
+  color: var(--color-primary);
+  font-weight: 600;
+  background-color: var(--color-primary-soft);
+}
+
+.step.done {
+  color: var(--color-text-secondary);
+}
+
+.step.done::before {
+  content: "✓";
+  font-size: var(--font-size-xs);
 }
 
 /* ---------- Form sections ---------- */
@@ -230,6 +231,15 @@ label {
    being silently overridden by the unconditional `display: flex`. */
 #review-section[hidden],
 #general-section[hidden] {
+  display: none;
+}
+
+#employer-field {
+  display: flex;
+  flex-direction: column;
+}
+
+#employer-field[hidden] {
   display: none;
 }
 
@@ -276,23 +286,50 @@ label {
   padding-right: 28px;
 }
 
-#output {
-  flex: 1 1 160px;
-  min-height: 0;
-  /* Bounded to the sidebar's own viewport instead of growing past it —
-     overflow scrolls internally rather than pushing the page taller. */
-  max-height: 45vh;
-  overflow-y: auto;
-  resize: none;
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
+/* ---------- Setup hint ---------- */
+
+#setup-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background-color: var(--color-primary-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  line-height: 1.4;
 }
 
-/* ---------- Generate button ---------- */
+#setup-hint[hidden] {
+  display: none;
+}
+
+#setup-hint-settings-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-left: var(--space-1);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+#setup-hint-settings-btn:hover {
+  color: var(--color-primary-hover);
+}
+
+/* ---------- Action row & Generate button ---------- */
+
+#action-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--space-2);
+}
 
 #generate-btn {
+  flex: 1;
   background-color: var(--color-primary);
   color: #fff;
   border: none;
@@ -321,27 +358,53 @@ label {
   cursor: not-allowed;
 }
 
-#export-pdf-btn {
-  background-color: transparent;
-  color: var(--color-primary);
+/* ---------- Provider quick-switch (compact chip) ---------- */
+
+#provider-row {
+  display: flex;
+  align-items: center;
+  background-color: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 10px 16px;
-  margin-top: var(--space-2);
-  font-family: inherit;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  padding: 0 var(--space-1);
+  box-shadow: none;
 }
 
-#export-pdf-btn:hover:not(:disabled) {
-  background-color: var(--color-primary-soft);
+#provider-row:focus-within {
   border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
 }
 
-#export-pdf-btn[hidden] {
-  display: none;
+#provider-row label {
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+#provider-select {
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-text-muted) 50%),
+    linear-gradient(135deg, var(--color-text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 12px) center, calc(100% - 7px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: 6px 24px 6px 8px;
+  cursor: pointer;
+  max-width: 105px;
+}
+
+#provider-select:focus {
+  outline: none;
+}
+
+#provider-select option:disabled {
+  color: var(--color-text-muted);
 }
 
 /* ---------- Loading state ---------- */
@@ -402,3 +465,53 @@ label {
   border: 1px solid var(--color-danger-border);
   border-radius: var(--radius-md);
 }
+
+/* ---------- Result section ---------- */
+
+#result-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+#result-section[hidden] {
+  display: none;
+}
+
+#output {
+  flex: 1 1 160px;
+  min-height: 0;
+  /* Bounded to the sidebar's own viewport instead of growing past it —
+     overflow scrolls internally rather than pushing the page taller. */
+  max-height: 45vh;
+  overflow-y: auto;
+  resize: none;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+#export-pdf-btn {
+  background-color: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  margin-top: var(--space-2);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+#export-pdf-btn:hover:not(:disabled) {
+  background-color: var(--color-primary-soft);
+  border-color: var(--color-primary);
+}
+
+#export-pdf-btn[hidden] {
+  display: none;
+}
+

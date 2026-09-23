@@ -16,13 +16,10 @@
     <button id="mode-general-btn" class="mode-btn" type="button">General Writer</button>
   </div>
 
-  <div id="provider-row">
-    <label for="provider-select">Generate with</label>
-    <select id="provider-select">
-      <option value="openrouter">OpenRouter</option>
-      <option value="groq">Groq</option>
-      <option value="local">Local model</option>
-    </select>
+  <div id="step-strip">
+    <span class="step" data-step="setup">1 Setup</span>
+    <span class="step" data-step="generate">2 Generate</span>
+    <span class="step" data-step="review">3 Review</span>
   </div>
 
   <div id="review-section">
@@ -35,24 +32,44 @@
     <select id="category-select">
       <option value="" disabled selected>Loading categories&hellip;</option>
     </select>
-    <label for="employer-input">Employer</label>
-    <input type="text" id="employer-input" placeholder="Employer name (auto-detected, editable)">
+    <div id="employer-field" hidden>
+      <label for="employer-input">Employer</label>
+      <input type="text" id="employer-input" placeholder="Employer name (auto-detected, editable)">
+    </div>
     <label for="prompt">What do you need written?</label>
     <textarea id="prompt" placeholder="Describe what you want written..."></textarea>
   </div>
 
-  <button id="generate-btn">Generate Review</button>
+  <p id="setup-hint" hidden>Add writing samples and your rules in Settings for better results. <button id="setup-hint-settings-btn" type="button">Open Settings</button></p>
+
+  <div id="action-row">
+    <button id="generate-btn">Generate Review</button>
+    <div id="provider-row">
+      <label for="provider-select" class="sr-only">Generate with</label>
+      <select id="provider-select">
+        <option value="openrouter">OpenRouter</option>
+        <option value="groq">Groq</option>
+        <option value="local">Local model</option>
+      </select>
+    </div>
+  </div>
+
   <div id="loading" hidden>
     <div id="progress-track"><div id="progress-fill"></div></div>
     <span class="loading-text">Generating&hellip;</span>
     <span id="progress-eta"></span>
   </div>
-  <textarea id="output" readonly placeholder="Generated review will appear here..."></textarea>
   <div id="status-message"></div>
-  <button id="export-pdf-btn" hidden>Export as PDF</button>
+
+  <div id="result-section" hidden>
+    <textarea id="output" readonly placeholder="Generated review will appear here..."></textarea>
+    <button id="export-pdf-btn" hidden>Export as PDF</button>
+  </div>
+
   <script src="lib/jspdf.umd.min.js"></script>
   <script src="lib/format.js"></script>
   <script src="generic_scrape.js"></script>
   <script type="module" src="sidebar.js"></script>
 </body>
 </html>
+

@@ -12,6 +12,13 @@
   </div>
 
   <section class="settings-section">
+    <h2 class="section-title">Setup status</h2>
+    <ul id="status-list"></ul>
+  </section>
+
+  <hr class="section-divider">
+
+  <section class="settings-section">
     <h2 class="section-title">Provider</h2>
     <p>Choose which AI generates your text and which scores it. Fill in an API key and model for OpenRouter or Groq, or an endpoint and model for a local model server below. If a provider's API call fails, that error is shown directly.</p>
 
@@ -24,6 +31,7 @@
 
     <label for="scoring-provider-select">Score with</label>
     <select id="scoring-provider-select">
+      <option value="">Same as generation</option>
       <option value="openrouter">OpenRouter</option>
       <option value="groq">Groq</option>
       <option value="local">Local model</option>
@@ -35,6 +43,8 @@
       <input type="password" id="openrouter-api-key" placeholder="API key">
       <label for="openrouter-model">Model Slug</label>
       <input type="text" id="openrouter-model" placeholder="Model slug (e.g. openai/gpt-4o-mini)">
+      <label for="openrouter-effort">Effort (optional: low / medium / high)</label>
+      <input type="text" id="openrouter-effort" placeholder="Leave empty for the model default">
     </div>
 
     <div class="provider-row">
@@ -43,6 +53,8 @@
       <input type="password" id="groq-api-key" placeholder="API key">
       <label for="groq-model">Model Slug</label>
       <input type="text" id="groq-model" placeholder="Model slug (e.g. llama-3.3-70b-versatile)">
+      <label for="groq-effort">Effort (optional: low / medium / high)</label>
+      <input type="text" id="groq-effort" placeholder="Leave empty for the model default">
     </div>
 
     <div class="provider-row">
@@ -51,6 +63,8 @@
       <input type="text" id="local-endpoint" placeholder="e.g. http://localhost:11434/v1/chat/completions">
       <label for="local-model">Model Slug</label>
       <input type="text" id="local-model" placeholder="Model name/tag as your server expects it">
+      <label for="local-effort">Effort (optional: low / medium / high)</label>
+      <input type="text" id="local-effort" placeholder="Leave empty for the model default">
       <label for="local-api-key">API Key (optional)</label>
       <input type="password" id="local-api-key" placeholder="Only if your local server requires one">
     </div>
@@ -119,6 +133,15 @@
     <p>Manage the writing samples Ghost Writer draws its voice from, organized by category. Upload a file or paste text directly.</p>
     <div id="samples-status"></div>
     <div id="samples-section"></div>
+  </section>
+
+  <hr class="section-divider">
+
+  <section class="settings-section">
+    <h2 class="section-title">Import Backup</h2>
+    <p>Load a JSON file with any of: rulesText, memoryText, personalizationText, samples ({category: {filename: text}}). Existing samples with the same name are overwritten; everything else is kept.</p>
+    <input type="file" id="import-file" accept=".json">
+    <div id="import-status"></div>
   </section>
 
   <script src="lib/format.js"></script>

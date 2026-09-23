@@ -4,11 +4,14 @@ const generationProviderSelect = document.getElementById('generation-provider-se
 const scoringProviderSelect = document.getElementById('scoring-provider-select');
 const localEndpoint = document.getElementById('local-endpoint');
 const localModel = document.getElementById('local-model');
+const localEffort = document.getElementById('local-effort');
 const localApiKey = document.getElementById('local-api-key');
 const openrouterApiKey = document.getElementById('openrouter-api-key');
 const openrouterModel = document.getElementById('openrouter-model');
+const openrouterEffort = document.getElementById('openrouter-effort');
 const groqApiKey = document.getElementById('groq-api-key');
 const groqModel = document.getElementById('groq-model');
+const groqEffort = document.getElementById('groq-effort');
 const saveBtn = document.getElementById('save-btn');
 const settingsStatus = document.getElementById('settings-status');
 
@@ -16,14 +19,17 @@ chrome.storage.local.get('providerSettings').then((result) => {
   const settings = result.providerSettings;
 
   generationProviderSelect.value = settings?.generationProvider || 'openrouter';
-  scoringProviderSelect.value = settings?.scoringProvider || 'openrouter';
+  scoringProviderSelect.value = settings?.scoringProvider || '';
 
   openrouterApiKey.value = settings?.openrouter?.apiKey ?? '';
   openrouterModel.value = settings?.openrouter?.model ?? '';
+  openrouterEffort.value = settings?.openrouter?.effort ?? '';
   groqApiKey.value = settings?.groq?.apiKey ?? '';
   groqModel.value = settings?.groq?.model ?? '';
+  groqEffort.value = settings?.groq?.effort ?? '';
   localEndpoint.value = settings?.local?.endpoint ?? '';
   localModel.value = settings?.local?.model ?? '';
+  localEffort.value = settings?.local?.effort ?? '';
   localApiKey.value = settings?.local?.apiKey ?? '';
 });
 
@@ -34,14 +40,17 @@ saveBtn.addEventListener('click', () => {
     openrouter: {
       apiKey: openrouterApiKey.value,
       model: openrouterModel.value,
+      effort: openrouterEffort.value.trim(),
     },
     groq: {
       apiKey: groqApiKey.value,
       model: groqModel.value,
+      effort: groqEffort.value.trim(),
     },
     local: {
       endpoint: localEndpoint.value,
       model: localModel.value,
+      effort: localEffort.value.trim(),
       apiKey: localApiKey.value,
     },
   };
@@ -240,3 +249,72 @@ async function addSample(category, filename, content) {
 }
 
 loadAllSamples();
+
+const importFile = document.getElementById('import-file');
+const importStatus = document.getElementById('import-status');
+
+importFile.addEventListener('change', async () => {
+  try {
+    const data = JSON.parse(await importFile.files[0].text());
+    const update = {};
+    for (const key of ['rulesText', 'memoryText', 'personalizationText']) {
+      if (typeof data[key] === 'string') update[key] = data[key];
+    }
+    if (data.samples && typeof data.samples === 'object') {
+      const { samples = {} } = await chrome.storage.local.get('samples');
+      for (const [category, files] of Object.entries(data.samples)) {
+        samples[category] = { ...(samples[category] || {}), ...files };
+      }
+      update.samples = samples;
+    }
+    await chrome.storage.local.set(update);
+    importStatus.textContent = `Imported: ${Object.keys(update).join(', ') || 'nothing'}. Reloading…`;
+    setTimeout(() => location.reload(), 600);
+  } catch (err) {
+    importStatus.textContent = `Import failed: ${err.message}`;
+  }
+});
+
+// Setup status: reflects what's actually in chrome.storage.local, re-rendered on every change.
+const statusList = document.getElementById('status-list');
+
+async function renderStatus() {
+  const d = await chrome.storage.local.get(['providerSettings', 'profileInfo', 'rulesText', 'memoryText', 'personalizationText', 'samples']);
+  const ps = d.providerSettings || {};
+  const gen = ps.generationProvider || 'openrouter';
+  const score = ps.scoringProvider || gen;
+  const providerRow = (name, label) => {
+    const c = ps[name] || {};
+    const ready = name === 'local' ? !!(c.endpoint && c.model) : !!(c.apiKey && c.model);
+    const bits = [c.model ? `model: ${c.model}` : 'no model', name === 'local' ? (c.endpoint ? 'endpoint set' : 'no endpoint') : (c.apiKey ? 'key set' : 'no key')];
+    if (c.effort) bits.push(`effort: ${c.effort}`);
+    const roles = [name === gen ? 'generates' : '', name === score ? 'scores' : ''].filter(Boolean).join(' + ');
+    return [ready, `${label}${roles ? ` (${roles})` : ''}`, bits.join(', ')];
+  };
+  const profileFilled = Object.values(d.profileInfo || {}).filter(Boolean).length;
+  const sampleCounts = Object.entries(d.samples || {})
+    .map(([c, files]) => [c, Object.values(files || {}).filter(Boolean).length])
+    .filter(([, n]) => n > 0);
+  const sampleTotal = sampleCounts.reduce((a, [, n]) => a + n, 0);
+
+  const rows = [
+    providerRow('openrouter', 'OpenRouter'),
+    providerRow('groq', 'Groq'),
+    providerRow('local', 'Local model'),
+    [!!d.rulesText?.trim(), 'Rules', d.rulesText?.trim() ? 'set' : 'empty (optional)'],
+    [!!d.memoryText?.trim(), 'Memory', d.memoryText?.trim() ? 'set' : 'empty (optional)'],
+    [!!d.personalizationText?.trim(), 'About Me', d.personalizationText?.trim() ? 'set' : 'empty (optional)'],
+    [profileFilled > 0, 'Profile (cover-letter PDF letterhead)', profileFilled ? `${profileFilled} field(s) set` : 'empty \u2014 needed for PDF export'],
+    [sampleTotal > 0, 'Writing samples', sampleTotal ? sampleCounts.map(([c, n]) => `${capitalizeCategory(c)} ${n}`).join(', ') : 'none'],
+    [!!d.samples?.cover_letter && Object.keys(d.samples.cover_letter).length > 0, 'Cover Letter samples', d.samples?.cover_letter && Object.keys(d.samples.cover_letter).length ? 'set' : 'none \u2014 cover letters will sound generic'],
+  ];
+  statusList.replaceChildren(...rows.map(([ok, label, detail]) => {
+    const li = document.createElement('li');
+    li.className = ok ? 'status-ok' : 'status-todo';
+    li.textContent = `${ok ? '\u2713' : '\u25CB'} ${label}: ${detail}`;
+    return li;
+  }));
+}
+
+chrome.storage.onChanged.addListener(renderStatus);
+renderStatus();

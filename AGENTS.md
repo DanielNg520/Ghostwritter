@@ -15,7 +15,9 @@ Read this file first. Update it after every implementation change.
     to that specific tab (`chrome.sidePanel.setOptions({tabId, path:
     "sidebar.html?tabId=<id>", enabled: true})`) before opening it, so each
     tab gets its own panel instance instead of one shared panel that follows
-    whichever tab is currently focused.
+    whichever tab is currently focused. A stateless `tabs.onActivated`
+    listener disables the panel on any tab whose options path isn't its own
+    `?tabId=<id>`.
   - `content.js` — static content script, scoped to `*://*.amazon.com/*`
     (see `host_permissions`). Scrapes product title/bullets for Review mode.
   - `generic_scrape.js` — page scraper for General Writer mode. Injected via
@@ -107,7 +109,7 @@ Read this file first. Update it after every implementation change.
     "ABOUT ME" block after RULES/MEMORY when non-empty — same function,
     same call sites in `sidebar.js`, no new context-assembly path.
   - `lib/generation_pipeline.js` — `runGenerationPipeline({prompt,
-    contextBlock, provider, config, onStage})`: the one shared generate→
+    contextBlock, generationProvider/Config, scoringProvider/Config, onStage})`: the one shared generate→
     score→refine-loop (`MAX_REFINE_ATTEMPTS` = 5, exported; internal
     `AI_SCORE_TARGET` = 20), reused by both Review and General Writer modes
     — do not split into two copies.
@@ -124,15 +126,14 @@ Read this file first. Update it after every implementation change.
   - `lib/format.js` — `capitalizeCategory(word)` ("cover_letter" -> "Cover
     Letter"), shared by `settings.js` and `sidebar.js` instead of each
     defining its own copy.
-- **workspace/** and **docs/** — orphaned by the Phase 1 redesign, not yet
-  migrated or deleted. `docs/RULES.MD`/`docs/MEMORY.MD` hold the user's real
-  prior rules/memory content; `workspace/sample/<category>/` holds the
-  user's real prior writing samples (17 files across 6 categories at time
-  of writing) — none of this has been copied into `chrome.storage` yet, so
-  Settings' new Rules & Memory / Writing Samples panels start empty until
-  the user manually re-enters it. `workspace/review/`, `workspace/writing/`
-  are historical generated-output archives, harmless to keep or delete.
-  See Carryover below for the known gap in this migration.
+- **workspace/** and **docs/** — legacy, unused by the extension (gitignored
+  personal content). Their rules/memory/samples were exported to a JSON for
+  Settings → Import Backup; safe to delete once imported.
+- `lib/samples_store.js` also exports `ALWAYS_CATEGORY` (`always_included`):
+  samples there are prepended to every category by `readSamplesText()` (the
+  old root-level "always included" files); listed in Settings, filtered out
+  of the sidebar's category select. Settings' Import Backup section merges a
+  JSON `{rulesText, memoryText, personalizationText, samples}` into storage.
 
 ## Conventions
 
@@ -175,14 +176,75 @@ Read this file first. Update it after every implementation change.
   chromium`, then `python3 tests/browser/smoke_test.py` — fully
   self-hosting now, no server to start first. Fixtures live in
   `tests/browser/fixtures/`.
-- `./setup.sh`, `./package.sh` — **not yet updated for Phase 1**: still
-  reference the deleted `server/`/`native-host/`/Python venv setup. See
-  Carryover below.
+- `./package.sh` — zips the extension source (setup.sh was deleted).
 - `./reload-extension.sh` — reload the unpacked extension in Chrome during dev.
 - Manual check after any extension change: `chrome://extensions` → reload →
   open a product page (Review mode) or any page (General mode) → Generate.
 
 ## Carryover
+
+- 2026-09-23 (done, user-reported 401 "Missing Authentication header"): "Score with" defaulted to OpenRouter, so with Gemini on Local the scorer hit OpenRouter with no key. Now "Same as generation" is the default option (empty `scoringProvider`), and `runGenerationPipeline()` throws a clear "<role> provider isn't set up" error before any request. 52/52 tests.
+
+- 2026-09-23 (done, user-reported): Amazon product page auto-detected as a job. Root cause: the keyword fallback counted raw hits, so one word ("requirements") repeated in specs tripped it. Fix: `generic_scrape.js` now also needs >=2 distinct job phrases, and `*.amazon.com` is never a job (amazon.jobs unaffected). Provider HTTP errors now name the host, status and first 200 chars of the body (plus a Settings hint on 401/403) instead of a bare status — the debugging aid instead of a logger. 51/51 tests.
+
+- 2026-09-23 (done): optional per-provider `effort` (providerSettings.<p>.effort) sent as `reasoning_effort` by `callChatCompletions` only when set; Setup status now lists all 3 providers with model, key-set and effort (never the key). Old (pre-redesign) storage held no OpenRouter/Groq keys or slugs — they lived in the deleted sops file. Hand-written; 50/50 tests.
+
+- 2026-09-23 (done): Settings now opens with a "Setup status" checklist (`renderStatus()` in `settings.js`, live via `chrome.storage.onChanged`): provider, rules, memory, about me, profile, sample counts, cover-letter samples. Hand-written. 49/49 tests.
+
+- 2026-09-23 (done): closed Phase 1 gaps. Added `ALWAYS_CATEGORY` slot
+  (fixes the dropped root-level "Writing guide.md" always-included samples,
+  which RULES rule #1 depends on) and Settings → Import Backup; exported the
+  legacy docs/RULES.MD, MEMORY.MD and workspace/sample/ to
+  `~/Downloads/ghostwriter_import.json` (outside the repo, personal data) —
+  user must import it once in their real Chrome. Deleted setup.sh,
+  start_server.command, .env.example; rewrote README.md; fixed package.sh.
+  Hand-written (small; user OK'd hand-writing earlier). 47/47 tests.
+  Still open: toolbar click on a previously-visited tab (item 4's
+  setOptions-before-open ordering) needs a manual check.
+
+- 2026-09-23 (done): redesign master plan item (5) — UI/UX overhaul. Extended
+  the existing sidebar (same ids, same `setMode()`/generate flow, no new
+  mode or pipeline): `#step-strip` (Setup/Generate/Review, `setStep()`),
+  `#employer-field` shown only for General+`cover_letter`
+  (`updateEmployerField()`), `#action-row` (primary Generate + compact
+  `#provider-row` chip), `#result-section` (output+export) hidden until a
+  generation succeeds, `#setup-hint` when no samples/rules/memory/about-me
+  exist. Dispatched via TriAPI (2 agy: html/css, 1 DeepSeek: js, ~$0.0013);
+  audited: DeepSeek wrapped reply in a code fence (stripped); agy did not
+  edit files directly this time. Verified: 44/44 tests (4 new) + screenshots.
+  Redesign master plan (1)-(5) is complete. Not done: collapsible "Options"
+  group was dropped as unnecessary; setup.sh/package.sh/README and the data
+  migration gaps from Phase 1 still open.
+
+- 2026-09-23 (done): audit of items (3)+(4), 2 dormant bugs fixed by hand.
+  (a) Item (4)'s in-memory `boundTabIds` Set was lost on MV3 service-worker
+  idle-kill, so a bound tab reactivated after a restart got wrongly
+  disabled — now stateless: `onActivated` checks `sidePanel.getOptions`
+  path ends `?tabId=<id>`; Set/`onRemoved` deleted. Also `onClicked` now
+  fires `setOptions` before `open` (open on a previously-disabled tab could
+  fail; not verifiable headless — no gesture; check manually).
+  (b) Closed Phase 3's `aiScore()` silent-degrade gap: it no longer swallows
+  errors/unknown provider (throws), so a broken scoring endpoint surfaces
+  in the UI instead of silently skipping refinement. Test: 40/40.
+
+- 2026-09-23 (done): redesign master plan item (4) — true single-tab panel
+  attachment (visibility, not just content). Extended `background.js`'s
+  existing tabId-binding mechanism (same primitive as the earlier tab-
+  scoping work, not a new one) rather than adding a separate visibility
+  system: a `boundTabIds` Set tracks tabs opened via a real toolbar click;
+  a new `chrome.tabs.onActivated` listener calls `sidePanel.setOptions({
+  tabId, enabled: false })` for any activated tab not in that set, and
+  `chrome.tabs.onRemoved` prunes the set. Previously only *content* was
+  scoped (`boundTabId`/`resolveTargetTabId()` in `sidebar.js`); the panel
+  could still visually follow/persist across tabs it wasn't opened from.
+  Hand-written directly (user chose this over TriAPI dispatch when asked,
+  given precedent for similarly-scoped single-file changes in this repo).
+  Verified via `tests/browser/smoke_test.py`: 2 new checks using the
+  existing service-worker handle (`ctx.service_workers[0]`) to call
+  `chrome.sidePanel.getOptions()` directly and confirm non-bound tabs end
+  up `enabled: false` after activation — 39/39 passing, no regressions.
+  Redesign master plan item (5) UI/UX overhaul is next per the documented
+  sequencing (now unblocked — (1)-(4) all done).
 
 - 2026-09-23 (done): redesign Phase 3 — local + API dual-provider
   workflow. `providerSettings` in `chrome.storage.local` now stores
@@ -680,18 +742,16 @@ Read this file first. Update it after every implementation change.
   `workspace/sample/cover_letter/` (folder created, empty) — quality will
   be generic until the user drops some in via Settings.
 
-- **Next item (in progress): extension redesign master plan.** Five
+- **Extension redesign master plan — COMPLETE 2026-09-23 (items 1-5 done).** Five
   workstreams from a 2026-09-22 afternoon design discussion, consolidated
   here per doc hygiene (plans live in this file, not a separate one).
   Sequencing matters — see dependency notes on each item before picking
   one to start.
 
-  - **Sequencing.** (1), (2), and (3) are done (see Carryover). (4) is
-    independent, safe to do anytime. (5) should come **after** (1)–(3)
-    land: redesigning UI around a data model that's about to change
-    wastes the design work — that condition is now satisfied. Recommended
-    order: (4) → (5), or (4) done opportunistically in parallel with (5)
-    since it doesn't touch shared state.
+  - **Sequencing.** (1)-(4) are done (see Carryover). Only (5) remains,
+    now unblocked — redesigning UI around a data model that's about to
+    change would have wasted the design work; that condition is now
+    satisfied.
 
   - **(1) Drop agy/Claude Code CLI providers, go pure API + local-model-
     endpoint only — DONE 2026-09-23.** See Carryover below for the full
@@ -702,16 +762,7 @@ Read this file first. Update it after every implementation change.
   - **(3) Local + API dual-provider workflow — DONE 2026-09-23.** See
     Carryover below for the full dispatch record.
   - **(4) True single-tab panel attachment (visibility, not just
-    content).** Gap in the existing tab-scoping work: `boundTabId`/
-    `resolveTargetTabId()` already scope which tab the panel *reads*,
-    but the panel's *visibility* is still Chrome's default side-panel
-    behavior — it can still appear to follow across tabs or fall back
-    to an unbound global instance instead of closing when you switch
-    away. Fix: `background.js` explicitly calls
-    `chrome.sidePanel.setOptions({ tabId, enabled: false })` for tabs
-    other than the one the panel was opened on (e.g. via
-    `chrome.tabs.onActivated`), instead of relying only on enabling the
-    clicked tab. Small, self-contained, no dependency on (1)-(3).
+    content) — DONE 2026-09-23.** See Carryover below.
   - **(5) UI/UX overhaul.** The vaguest-scoped, biggest item — needs an
     actual interaction-design pass, not incremental CSS. Concrete
     techniques to apply, per the user's own framing (attention-guiding,

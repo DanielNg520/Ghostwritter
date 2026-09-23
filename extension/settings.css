@@ -394,3 +394,7 @@ label[for="scoring-provider-select"] {
   min-height: 0;
 }
 
+
+#status-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.875rem; }
+.status-ok { color: #2e7d32; }
+.status-todo { color: #b26a00; }

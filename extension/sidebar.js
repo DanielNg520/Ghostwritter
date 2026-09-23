@@ -1,4 +1,4 @@
-import { listSampleCategories, readSamplesText } from './lib/samples_store.js';
+import { listSampleCategories, readSamplesText, ALWAYS_CATEGORY } from './lib/samples_store.js';
 import { buildContext, buildTextPrompt, buildGeneralistPrompt } from './lib/prompt_builders.js';
 import { runGenerationPipeline, MAX_REFINE_ATTEMPTS } from './lib/generation_pipeline.js';
 
@@ -11,6 +11,11 @@ const settingsBtn = document.getElementById("settings-btn");
 const progressFill = document.getElementById("progress-fill");
 const progressEta = document.getElementById("progress-eta");
 const exportPdfBtn = document.getElementById("export-pdf-btn");
+const employerField = document.getElementById("employer-field");
+const resultSection = document.getElementById("result-section");
+const setupHint = document.getElementById("setup-hint");
+const setupHintSettingsBtn = document.getElementById("setup-hint-settings-btn");
+const stepElements = [...document.querySelectorAll(".step[data-step]")];
 
 const boundTabId = (() => {
   const match = new URLSearchParams(location.search).get("tabId");
@@ -73,7 +78,7 @@ const providerSelect = document.getElementById("provider-select");
 // backed, the same source settings.js's sample panels use) and fills
 // #category-select with it.
 async function populateCategorySelect() {
-  const categories = await listSampleCategories();
+  const categories = (await listSampleCategories()).filter((c) => c !== ALWAYS_CATEGORY);
   categorySelect.replaceChildren();
 
   for (const category of categories) {
@@ -161,11 +166,20 @@ async function detectJobPageAndConfigure() {
   }
 }
 
+async function updateSetupHint() {
+  const { samples, rulesText, memoryText, personalizationText } = await chrome.storage.local.get(["samples", "rulesText", "memoryText", "personalizationText"]);
+  const hasSamples = Object.values(samples ?? {}).some((files) => Object.values(files ?? {}).some((content) => content?.trim()));
+  const hasConfig = rulesText?.trim() || memoryText?.trim() || personalizationText?.trim();
+  setupHint.hidden = hasSamples || hasConfig;
+}
+
 // Populate the real category list first so detectJobPageAndConfigure() can
 // reliably check for "cover_letter", then run the job-page detection.
 async function initPanel() {
   await populateCategorySelect();
   await detectJobPageAndConfigure();
+  updateEmployerField();
+  await updateSetupHint();
 }
 
 initPanel();
@@ -187,6 +201,29 @@ function setMode(mode) {
   if (isReview) {
     exportPdfBtn.hidden = true;
   }
+
+  updateEmployerField();
+}
+
+function setStep(step) {
+  const stepIndex = {
+    setup: 0,
+    generate: 1,
+    review: 2,
+  }[step];
+
+  stepElements.forEach((el, index) => {
+    el.classList.remove("active", "done");
+    if (index < stepIndex) {
+      el.classList.add("done");
+    } else if (index === stepIndex) {
+      el.classList.add("active");
+    }
+  });
+}
+
+function updateEmployerField() {
+  employerField.hidden = !(currentMode === "general" && categorySelect.value === "cover_letter");
 }
 
 modeReviewBtn.addEventListener("click", () => setMode("review"));
@@ -197,9 +234,14 @@ modeGeneralBtn.addEventListener("click", () => setMode("general"));
 // export available for the new (unmatched) category.
 categorySelect.addEventListener("change", () => {
   exportPdfBtn.hidden = true;
+  updateEmployerField();
 });
 
 settingsBtn.addEventListener("click", () => {
+  chrome.runtime.openOptionsPage();
+});
+
+setupHintSettingsBtn.addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
 
@@ -220,7 +262,9 @@ function resolveProviderConfig(providerSettings, provider) {
   const endpoint =
     provider === "local" ? providerSettings?.local?.endpoint ?? "" : "";
 
-  return { apiKey, model, endpoint };
+  const effort = providerSettings?.[provider]?.effort ?? "";
+
+  return { apiKey, model, endpoint, effort };
 }
 
 async function getProviderSettings() {
@@ -263,6 +307,8 @@ async function generateReview() {
   });
 
   output.value = text;
+  resultSection.hidden = false;
+  setStep("review");
   progressFill.style.width = "100%";
 }
 
@@ -295,6 +341,8 @@ async function generateWriting() {
   });
 
   output.value = resultText;
+  resultSection.hidden = false;
+  setStep("review");
   progressFill.style.width = "100%";
 
   if (category === "cover_letter" && resultText) {
@@ -418,6 +466,7 @@ generateBtn.addEventListener("click", async () => {
   loading.hidden = false;
   resetProgress();
   exportPdfBtn.hidden = true;
+  setStep("generate");
 
   try {
     if (currentMode === "review") {
@@ -427,6 +476,7 @@ generateBtn.addEventListener("click", async () => {
     }
   } catch (err) {
     resetProgress();
+    setStep("setup");
     // A fetch()-level network failure (server unreachable) throws a bare
     // TypeError with no useful message; every other failure — a non-ok HTTP
     // response, or chrome.tabs.sendMessage rejecting when not on an Amazon
@@ -442,3 +492,5 @@ generateBtn.addEventListener("click", async () => {
     generateBtn.disabled = false;
   }
 });
+
+setStep("setup");

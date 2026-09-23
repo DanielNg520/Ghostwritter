@@ -63,6 +63,14 @@ function scrapePageContent() {
   // so this runs on ANY site, not just JOB_SITE_HOSTS — a higher bar is
   // needed there than on a host we already know is a job board, since an
   // unrelated page can mention one of these terms once in passing.
+  // A real posting uses several distinct headings (responsibilities,
+  // requirements, qualifications...); a product page repeating "requirements"
+  // in specs/reviews does not. So besides the raw count, require >= 2
+  // distinct phrases.
+  function distinctCount(matches) {
+    return new Set((matches || []).map((m) => m.toLowerCase())).size;
+  }
+
   function findByKeywordScore(minMatches) {
     // Cheap single-pass gate before the expensive part: this runs on any
     // page now (not just JOB_SITE_HOSTS), including large SPAs (Gmail,
@@ -70,8 +78,8 @@ function scrapePageContent() {
     // below is otherwise O(n) *elements* each computing O(subtree) textContent
     // (nested divs re-scan overlapping text) — one whole-page check first
     // means non-job pages (the common case) never pay that cost at all.
-    const bodyMatches = (document.body.textContent.match(JOB_KEYWORDS) || []).length;
-    if (bodyMatches < minMatches) return null;
+    const bodyHits = document.body.textContent.match(JOB_KEYWORDS) || [];
+    if (bodyHits.length < minMatches || distinctCount(bodyHits) < Math.min(minMatches, 2)) return null;
 
     const candidates = Array.from(document.querySelectorAll("main, article, section, div"))
       .filter((el) => {
@@ -85,7 +93,7 @@ function scrapePageContent() {
       const text = el.textContent;
       const matches = text.match(JOB_KEYWORDS);
       const count = matches ? matches.length : 0;
-      if (count < minMatches) continue;
+      if (count < minMatches || distinctCount(matches) < Math.min(minMatches, 2)) continue;
       const score = count * 1000 + Math.min(text.length, 5000);
       if (score > bestScore) {
         bestScore = score;
@@ -275,7 +283,11 @@ function scrapePageContent() {
   // hostname already told us this is a job site). Everywhere else needs a
   // denser cluster of job-posting language before we trust it's really a
   // job description and not, say, a page that mentions "requirements" once.
-  const jobEl = isJobSite
+  // Amazon storefronts are Review-mode territory, never job postings
+  // (amazon.jobs is a different hostname and still goes through the normal path).
+  const isAmazonStore = /(^|\.)amazon\.com$/.test(location.hostname);
+
+  const jobEl = isAmazonStore ? null : isJobSite
     ? findBySelectors() || findByKeywordScore(1)
     : findByKeywordScore(3);
 
