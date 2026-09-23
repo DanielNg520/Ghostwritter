@@ -176,18 +176,44 @@ Read this file first. Update it after every implementation change.
   chromium`, then `python3 tests/browser/smoke_test.py` — fully
   self-hosting now, no server to start first. Fixtures live in
   `tests/browser/fixtures/`.
-- `./package.sh` — zips the extension source (setup.sh was deleted).
-- `./reload-extension.sh` — reload the unpacked extension in Chrome during dev.
+- `./package.sh` — zips the extension source for another machine.
+- No CLI reload: branded Chrome 137+ ignores `--load-extension` (verified on Fedora, Chrome 154). Load unpacked once per machine, then click the reload icon on the card.
 - Manual check after any extension change: `chrome://extensions` → reload →
   open a product page (Review mode) or any page (General mode) → Generate.
 
 ## Carryover
 
-- 2026-09-23 (done, user-reported 401 "Missing Authentication header"): "Score with" defaulted to OpenRouter, so with Gemini on Local the scorer hit OpenRouter with no key. Now "Same as generation" is the default option (empty `scoringProvider`), and `runGenerationPipeline()` throws a clear "<role> provider isn't set up" error before any request. 52/52 tests.
+- 2026-09-23 (done): cross-OS install. Deleted `reload-extension.sh` — it
+  relied on `--load-extension`, ignored by branded Chrome 137+ (Fedora,
+  Chrome 154: also ignores
+  `--disable-features=DisableLoadExtensionCommandLineSwitch`; also its Linux
+  `pkill -f` matched a wrapper path, not `/opt/google/chrome/chrome`).
+  Install = Load unpacked once per machine, click reload after changes;
+  manifest `key` keeps the ID stable. Fedora: `smoke_test.py` 52/52, no PEP
+  668 block, Playwright libs present. Xubuntu untested; snap Chromium can't
+  read unpacked dirs outside non-hidden home paths. Older entries mentioning
+  the script are historical.
 
-- 2026-09-23 (done, user-reported): Amazon product page auto-detected as a job. Root cause: the keyword fallback counted raw hits, so one word ("requirements") repeated in specs tripped it. Fix: `generic_scrape.js` now also needs >=2 distinct job phrases, and `*.amazon.com` is never a job (amazon.jobs unaffected). Provider HTTP errors now name the host, status and first 200 chars of the body (plus a Settings hint on 401/403) instead of a bare status — the debugging aid instead of a logger. 51/51 tests.
+- 2026-09-23 (done, user-reported 401 "Missing Authentication header"):
+  "Score with" defaulted to OpenRouter, so with Gemini on Local the scorer
+  hit OpenRouter with no key. Now "Same as generation" is the default option
+  (empty `scoringProvider`), and `runGenerationPipeline()` throws a clear
+  "<role> provider isn't set up" error before any request. 52/52 tests.
 
-- 2026-09-23 (done): optional per-provider `effort` (providerSettings.<p>.effort) sent as `reasoning_effort` by `callChatCompletions` only when set; Setup status now lists all 3 providers with model, key-set and effort (never the key). Old (pre-redesign) storage held no OpenRouter/Groq keys or slugs — they lived in the deleted sops file. Hand-written; 50/50 tests.
+- 2026-09-23 (done, user-reported): Amazon product page auto-detected as a
+  job. Root cause: the keyword fallback counted raw hits, so one word
+  ("requirements") repeated in specs tripped it. Fix: `generic_scrape.js`
+  now also needs >=2 distinct job phrases, and `*.amazon.com` is never a job
+  (amazon.jobs unaffected). Provider HTTP errors now name the host, status
+  and first 200 chars of the body (plus a Settings hint on 401/403) instead
+  of a bare status — the debugging aid instead of a logger. 51/51 tests.
+
+- 2026-09-23 (done): optional per-provider `effort`
+  (providerSettings.<p>.effort) sent as `reasoning_effort` by
+  `callChatCompletions` only when set; Setup status now lists all 3
+  providers with model, key-set and effort (never the key). Old
+  (pre-redesign) storage held no OpenRouter/Groq keys or slugs — they lived
+  in the deleted sops file. Hand-written; 50/50 tests.
 
 - 2026-09-23 (done): Settings now opens with a "Setup status" checklist (`renderStatus()` in `settings.js`, live via `chrome.storage.onChanged`): provider, rules, memory, about me, profile, sample counts, cover-letter samples. Hand-written. 49/49 tests.
 

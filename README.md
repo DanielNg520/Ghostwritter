@@ -9,7 +9,7 @@ Every draft is scored for AI-sounding text and rewritten (up to 5 times) until t
 
 ## Install
 
-1. `chrome://extensions` → enable Developer mode → **Load unpacked** → select `extension/`. (`./reload-extension.sh` relaunches Chrome with it loaded during development.)
+1. `chrome://extensions` → enable Developer mode → **Load unpacked** → select `extension/`. Do this once per machine (macOS, Xubuntu, Fedora); Chrome keeps it across restarts. After a `git pull` or edit, click the reload icon on the extension's card. (Branded Chrome 137+ ignores `--load-extension`, so there is no command-line load/reload.)
 2. Click the toolbar icon to open the panel, then the gear icon for **Settings**.
 
 ## Settings
