@@ -1,10 +1,13 @@
-export function buildContext(rulesText, memoryText) {
+export function buildContext(rulesText, memoryText, personalizationText) {
   const parts = [];
   if (rulesText) {
     parts.push(`--- RULES (must follow) ---\n${rulesText}`);
   }
   if (memoryText) {
     parts.push(`--- MEMORY (keep in mind) ---\n${memoryText}`);
+  }
+  if (personalizationText) {
+    parts.push(`--- ABOUT ME (background on the author) ---\n${personalizationText}`);
   }
   return parts.join("\n\n");
 }

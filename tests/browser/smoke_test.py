@@ -147,7 +147,41 @@ def main():
         settings.reload()
         settings.wait_for_timeout(500)
         check("Profile fields repopulate on reload", settings.input_value("#profile-name") == "Jane Doe")
+
+        # ---- settings.html: Rules & Memory (+ Personalization) round-trip ----
+        settings.fill("#rules-text", "Never use exclamation points.")
+        settings.fill("#memory-text", "The author owns a golden retriever.")
+        settings.fill("#personalization-text", "I'm a backend engineer switching to product management.")
+        settings.click("#save-rules-memory-btn")
+        settings.wait_for_timeout(300)
+        check("Rules & Memory save confirmation shown", settings.locator("#rules-memory-status").inner_text() == "Rules & Memory saved.")
+        stored_rm = settings.evaluate("() => chrome.storage.local.get(['rulesText', 'memoryText', 'personalizationText'])")
+        check("personalizationText persisted alongside rulesText/memoryText",
+              stored_rm.get("personalizationText") == "I'm a backend engineer switching to product management."
+              and stored_rm.get("rulesText") == "Never use exclamation points."
+              and stored_rm.get("memoryText") == "The author owns a golden retriever.", stored_rm)
+        settings.reload()
+        settings.wait_for_timeout(500)
+        check("Personalization field repopulates on reload",
+              settings.input_value("#personalization-text") == "I'm a backend engineer switching to product management.")
         settings.close()
+
+        # ---- lib/prompt_builders.js: buildContext() injects all three blocks ----
+        builders_src = (EXT_DIR / "lib" / "prompt_builders.js").read_text()
+        probe = ctx.new_page()
+        probe.goto(f"http://localhost:{HTTP_PORT}/fake_job.html")
+        context_block = probe.evaluate(
+            "(src) => { const mod = new Function('exports', src + '\\nreturn exports;')({}); "
+            "return mod.buildContext('RULE_X', 'MEMORY_Y', 'ABOUT_Z'); }",
+            builders_src.replace("export function buildContext", "exports.buildContext = function")
+            .replace("export function buildTextPrompt", "exports.buildTextPrompt = function")
+            .replace("export function buildGeneralistPrompt", "exports.buildGeneralistPrompt = function")
+            .replace("export function buildRefinePrompt", "exports.buildRefinePrompt = function"),
+        )
+        check("buildContext() includes RULES, MEMORY, and ABOUT ME blocks",
+              "RULE_X" in context_block and "MEMORY_Y" in context_block and "ABOUT_Z" in context_block
+              and "ABOUT ME" in context_block, context_block)
+        probe.close()
 
         # ---- sidebar.html: panel behavior ----
         # A panel restored by Chrome on relaunch (no fresh toolbar click, so

@@ -84,8 +84,12 @@ Read this file first. Update it after every implementation change.
     section (`profileInfo` in `chrome.storage.local`: name/email/phone/
     address/city/state/zip/linkedin) used to fill in the sender block on
     exported cover letters, and a Rules & Memory section (`rulesText`/
-    `memoryText` in `chrome.storage.local`, replacing the old
-    `docs/RULES.MD`/`docs/MEMORY.MD` files). Also loaded as an ES module.
+    `memoryText`/`personalizationText` in `chrome.storage.local`,
+    replacing the old `docs/RULES.MD`/`docs/MEMORY.MD` files;
+    `personalizationText` — a free-form "about me" background blob — is
+    the Phase 2 addition, same textarea-and-save-button mechanism, same
+    storage key group, not a new section or a new save path). Also
+    loaded as an ES module.
     Sample-category panels are built from `listSampleCategories()`'s real
     category list, not a hardcoded array.
   - `sidebar.js`'s `#category-select` is populated the same way
@@ -96,9 +100,12 @@ Read this file first. Update it after every implementation change.
     `callOpenRouter()`/`callGroq()`/`callLocal()` each just supply their own
     url/headers and delegate to it. `aiScore(text, provider, config)` rates
     how AI-sounding a piece of text is (0-100), same shared dispatch.
-  - `lib/prompt_builders.js` — `buildContext`, `buildTextPrompt`,
-    `buildGeneralistPrompt`, `buildRefinePrompt`: pure string builders, no
-    side effects, no fetch calls.
+  - `lib/prompt_builders.js` — `buildContext(rulesText, memoryText,
+    personalizationText)`, `buildTextPrompt`, `buildGeneralistPrompt`,
+    `buildRefinePrompt`: pure string builders, no side effects, no fetch
+    calls. `buildContext`'s third param (added Phase 2) injects an
+    "ABOUT ME" block after RULES/MEMORY when non-empty — same function,
+    same call sites in `sidebar.js`, no new context-assembly path.
   - `lib/generation_pipeline.js` — `runGenerationPipeline({prompt,
     contextBlock, provider, config, onStage})`: the one shared generate→
     score→refine-loop (`MAX_REFINE_ATTEMPTS` = 5, exported; internal
@@ -176,6 +183,25 @@ Read this file first. Update it after every implementation change.
   open a product page (Review mode) or any page (General mode) → Generate.
 
 ## Carryover
+
+- 2026-09-23 (done): redesign Phase 2 — personalization file. Added
+  `personalizationText` to `chrome.storage.local` alongside `rulesText`/
+  `memoryText`, one new textarea in Settings' existing Rules & Memory
+  section (same save button/mechanism, no new section or storage
+  group). `buildContext()` in `lib/prompt_builders.js` gained a third
+  param that injects an "ABOUT ME (background on the author)" block
+  after RULES/MEMORY when non-empty; both `sidebar.js` call sites
+  (`generateReview()`/`generateWriting()`) now read and pass it
+  through — no new context-assembly path, no new pipeline. Hand-written
+  directly (small, targeted edit — not routed through TriAPI). Verified
+  with `tests/browser/smoke_test.py`: 3 new checks (Settings round-trip
+  save/reload for the new field, and `buildContext()` actually emitting
+  all three blocks when called directly in-page) — 33/33 passing, no
+  regressions. Not done: the known data-migration gap from Phase 1
+  (`docs/RULES.MD`/`docs/MEMORY.MD` content not copied into
+  `chrome.storage`) still applies here too — the personalization field
+  has no legacy source file to migrate from (it's new), so nothing
+  further is needed on that front for this field specifically.
 
 - 2026-09-23 (done): redesign Phase 1 — dropped agy/Claude Code CLI
   providers, went pure API + local-model-endpoint only. Dispatched as 16
@@ -616,11 +642,11 @@ Read this file first. Update it after every implementation change.
   Sequencing matters — see dependency notes on each item before picking
   one to start.
 
-  - **Sequencing.** (1) is done (2026-09-23, see Carryover). (2) and (3)
-    build on its `providerSettings`/samples/rules/memory data model. (4)
-    is independent, safe to do anytime. (5) should come **after** (1)–(3)
+  - **Sequencing.** (1) and (2) are done (see Carryover). (3) builds on
+    (1)'s `providerSettings`/samples/rules/memory data model. (4) is
+    independent, safe to do anytime. (5) should come **after** (1)–(3)
     land: redesigning UI around a data model that's about to change
-    wastes the design work. Recommended order: (2) → (3) → (4) → (5), or
+    wastes the design work. Recommended order: (3) → (4) → (5), or
     (4) done opportunistically in parallel since it doesn't touch shared
     state.
 
@@ -628,12 +654,8 @@ Read this file first. Update it after every implementation change.
     endpoint only — DONE 2026-09-23.** See Carryover below for the full
     dispatch record and known gaps (sample/rules/memory data migration
     not done, `setup.sh`/`package.sh`/`README.md` not updated).
-  - **(2) Personalization file** (a background "about me" text blob).
-    Extends the existing `RULES.MD`/`MEMORY.MD` context-injection
-    (`build_context()`) as a third injected context source — not a new
-    primitive. After (1), lives in the same `chrome.storage` location
-    as the relocated `RULES.MD`/`MEMORY.MD`, edited via the same
-    Settings textarea mechanism, not a separate new one.
+  - **(2) Personalization file** (a background "about me" text blob) —
+    **DONE 2026-09-23.** See Carryover below.
   - **(3) Local + API dual-provider workflow.** Reuses the existing
     `generate_review_text()`/`ai_score()` split (already two separate
     calls) instead of introducing new orchestration: let the cheap,

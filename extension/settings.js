@@ -103,18 +103,21 @@ saveProfileBtn.addEventListener('click', () => {
 
 const rulesText = document.getElementById('rules-text');
 const memoryText = document.getElementById('memory-text');
+const personalizationText = document.getElementById('personalization-text');
 const saveRulesMemoryBtn = document.getElementById('save-rules-memory-btn');
 const rulesMemoryStatus = document.getElementById('rules-memory-status');
 
-chrome.storage.local.get(['rulesText', 'memoryText']).then((result) => {
+chrome.storage.local.get(['rulesText', 'memoryText', 'personalizationText']).then((result) => {
   rulesText.value = result.rulesText ?? '';
   memoryText.value = result.memoryText ?? '';
+  personalizationText.value = result.personalizationText ?? '';
 });
 
 saveRulesMemoryBtn.addEventListener('click', () => {
   chrome.storage.local.set({
     rulesText: rulesText.value,
     memoryText: memoryText.value,
+    personalizationText: personalizationText.value,
   }).then(() => {
     rulesMemoryStatus.textContent = 'Rules & Memory saved.';
   });

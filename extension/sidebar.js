@@ -238,8 +238,8 @@ async function generateReview() {
   const { provider, apiKey, model, endpoint } = await getProviderSettings();
   const config = { apiKey, model, endpoint };
 
-  const { rulesText, memoryText } = await chrome.storage.local.get(["rulesText", "memoryText"]);
-  const contextBlock = buildContext(rulesText || "", memoryText || "");
+  const { rulesText, memoryText, personalizationText } = await chrome.storage.local.get(["rulesText", "memoryText", "personalizationText"]);
+  const contextBlock = buildContext(rulesText || "", memoryText || "", personalizationText || "");
 
   const samplesText = await readSamplesText("review");
 
@@ -269,8 +269,8 @@ async function generateWriting() {
   const { provider, apiKey, model, endpoint } = await getProviderSettings();
   const config = { apiKey, model, endpoint };
 
-  const { rulesText, memoryText } = await chrome.storage.local.get(["rulesText", "memoryText"]);
-  const contextBlock = buildContext(rulesText || "", memoryText || "");
+  const { rulesText, memoryText, personalizationText } = await chrome.storage.local.get(["rulesText", "memoryText", "personalizationText"]);
+  const contextBlock = buildContext(rulesText || "", memoryText || "", personalizationText || "");
 
   const samplesText = await readSamplesText(category);
 
