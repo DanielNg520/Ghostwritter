@@ -216,6 +216,17 @@ Read this file first. Update it after every implementation change.
   `runGenerationPipeline()` proven via a stubbed `window.fetch` to
   dispatch generation and scoring to two distinct endpoints, not an
   aliased single call) — 37/37 passing, no regressions.
+  **Known gap, not fixed this session (flagged, user hasn't decided):**
+  `aiScore()` (`lib/provider_client.js`) already caught every error and
+  returned `0` (Phase 1 design). Before this phase, scoring always used
+  the same config as generation, so a broken config broke generation too
+  — loud and immediate. Now scoring can point at an independently
+  misconfigured/unreachable provider (e.g. a local endpoint that isn't
+  running), and `aiScore` returning `0` is *below* `AI_SCORE_TARGET`, so
+  the refine loop silently never triggers — the AI-detection quality
+  gate becomes a no-op with no error surfaced. A real fix touches shared
+  `provider_client.js` behavior (used by other call sites too) — a
+  design call, not folded into this diff.
 
 - 2026-09-23 (done): redesign Phase 2 — personalization file. Added
   `personalizationText` to `chrome.storage.local` alongside `rulesText`/
