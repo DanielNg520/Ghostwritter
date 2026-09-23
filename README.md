@@ -24,6 +24,6 @@ Everything is stored in `chrome.storage.local`; API keys only leave the browser 
 
 ## Development
 
-- `python3 tests/browser/smoke_test.py` — self-hosted Playwright suite (`pip install -r tests/requirements-dev.txt && playwright install chromium`).
+- `python3 tests/browser/smoke_test.py` — self-hosted Playwright suite (`python3 -m venv .venv && .venv/bin/pip install -r tests/requirements-dev.txt && .venv/bin/playwright install chromium`, then run it with `.venv/bin/python`).
 - `./package.sh` — zip the source for another machine.
 - See `AGENTS.md` for architecture and conventions.

@@ -172,9 +172,11 @@ Read this file first. Update it after every implementation change.
   (`extractEmployer()`'s heuristics, Settings Profile round-trip,
   category-select/sample-panel population from `chrome.storage`, PDF
   export/pagination/filename, panel tab-binding, cross-tab isolation).
-  `pip install -r tests/requirements-dev.txt && playwright install
-  chromium`, then `python3 tests/browser/smoke_test.py` — fully
-  self-hosting now, no server to start first. Fixtures live in
+  `python3 -m venv .venv && .venv/bin/pip install -r
+  tests/requirements-dev.txt && .venv/bin/playwright install chromium`
+  (bare `pip`/`playwright` aren't on PATH on Fedora), then
+  `.venv/bin/python tests/browser/smoke_test.py` — fully self-hosting,
+  no server to start first. Fixtures live in
   `tests/browser/fixtures/`.
 - `./package.sh` — zips the extension source for another machine.
 - No CLI reload: branded Chrome 137+ ignores `--load-extension` (verified on Fedora, Chrome 154). Load unpacked once per machine, then click the reload icon on the card.
@@ -389,10 +391,9 @@ Read this file first. Update it after every implementation change.
     included first"). Needs a real fix (e.g. an "always include" flag
     per sample, or a dedicated always-on slot), not just re-uploading
     the file into every category by hand.
-  - `setup.sh`, `package.sh`, `README.md` still reference the deleted
-    `server/`/`native-host/`/Python venv — not updated, will mislead
-    a fresh install. `workspace/`, `docs/` left on disk (real content,
-    not deleted) but now orphaned relative to the new client-only flow.
+  - `workspace/`, `docs/` left on disk (real content, not deleted) but
+    orphaned relative to the client-only flow. (Script/README staleness
+    was fixed later.)
 
 - 2026-09-22 (done, user-reported): the tab-scoping fix's strict
   "`boundTabId === null` -> refuse to act at all" design (see the
