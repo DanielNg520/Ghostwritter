@@ -133,7 +133,9 @@ Read this file first. Update it after every implementation change.
   samples there are prepended to every category by `readSamplesText()` (the
   old root-level "always included" files); listed in Settings, filtered out
   of the sidebar's category select. Settings' Import Backup section merges a
-  JSON `{rulesText, memoryText, personalizationText, samples}` into storage.
+  JSON `{rulesText, memoryText, personalizationText, samples, providerSettings}`
+  into storage (`providerSettings` replaces wholesale). Root `secrets.json`
+  (gitignored, chmod 600) is a key template for it; Gemini uses the `local` slot.
 
 ## Conventions
 
@@ -185,12 +187,14 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
-- 2026-09-28 (done, hand edit approved): Import Backup now also accepts
-  `providerSettings` (`settings.js` import loop, +3 lines). Fedora's keys/models
-  were carried from Xubuntu (partner machine, `daniel@100.120.150.3`) via
-  age-encrypted transfer; plaintext JSON at `~/Downloads/ghostwriter_providers.json`
-  (mode 600, outside repo) — import once, then delete it. Never archive or
-  transfer user files without approval; MacBook is not part of this work.
+- 2026-09-28 (done, hand edit approved): Import Backup now also takes
+  `providerSettings` (`settings.js` import loop, +3 lines); gitignored root
+  `secrets.json` template (OpenRouter + Gemini via `local` endpoint) exists on
+  xuxu-latitude only. Fedora's keys/models were carried from Xubuntu
+  (`daniel@100.120.150.3`) via age-encrypted transfer into
+  `~/Downloads/ghostwriter_providers.json` (mode 600, outside repo) — import once,
+  then delete it. Tests not run (no `.venv` on Xubuntu). Never archive or transfer
+  user files without approval; the MacBook is not part of this work.
 
 - 2026-09-23 (done): cross-OS install. Deleted `reload-extension.sh` — it
   relied on `--load-extension`, ignored by branded Chrome 137+ (Fedora,
