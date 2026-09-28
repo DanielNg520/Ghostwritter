@@ -260,6 +260,9 @@ importFile.addEventListener('change', async () => {
     for (const key of ['rulesText', 'memoryText', 'personalizationText']) {
       if (typeof data[key] === 'string') update[key] = data[key];
     }
+    if (data.providerSettings && typeof data.providerSettings === 'object') {
+      update.providerSettings = data.providerSettings;
+    }
     if (data.samples && typeof data.samples === 'object') {
       const { samples = {} } = await chrome.storage.local.get('samples');
       for (const [category, files] of Object.entries(data.samples)) {

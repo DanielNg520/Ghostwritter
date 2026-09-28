@@ -185,6 +185,13 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
+- 2026-09-28 (done, hand edit approved): Import Backup now also accepts
+  `providerSettings` (`settings.js` import loop, +3 lines). Fedora's keys/models
+  were carried from Xubuntu (partner machine, `daniel@100.120.150.3`) via
+  age-encrypted transfer; plaintext JSON at `~/Downloads/ghostwriter_providers.json`
+  (mode 600, outside repo) — import once, then delete it. Never archive or
+  transfer user files without approval; MacBook is not part of this work.
+
 - 2026-09-23 (done): cross-OS install. Deleted `reload-extension.sh` — it
   relied on `--load-extension`, ignored by branded Chrome 137+ (Fedora,
   Chrome 154: also ignores
