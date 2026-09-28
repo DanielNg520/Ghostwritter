@@ -187,14 +187,13 @@ Read this file first. Update it after every implementation change.
 
 ## Carryover
 
-- 2026-09-28 (done, hand edit approved): Import Backup now also takes
-  `providerSettings` (`settings.js` import loop, +3 lines); gitignored root
-  `secrets.json` template (OpenRouter + Gemini via `local` endpoint) exists on
-  xuxu-latitude only. Fedora's keys/models were carried from Xubuntu
-  (`daniel@100.120.150.3`) via age-encrypted transfer into
-  `~/Downloads/ghostwriter_providers.json` (mode 600, outside repo) — import once,
-  then delete it. Tests not run (no `.venv` on Xubuntu). Never archive or transfer
-  user files without approval; the MacBook is not part of this work.
+- 2026-09-28 (done): Fedora and Xubuntu repos are carbon copies at the same
+  commit, tracked and ignored files (`docs/`, `workspace/sample/`) checksum-identical.
+  Import Backup now also takes `providerSettings` (`settings.js`, +3 lines, hand
+  edit approved); no test covers it yet. Root `secrets.json` (gitignored) is a key
+  template on Xubuntu only. `smoke_test.py` 52/52 on both (venv rebuilt on each).
+  Open: import `~/Downloads/ghostwriter_providers.json` on Fedora via Settings ->
+  Import Backup, then delete it. Keys live in Chrome storage, never in git.
 
 - 2026-09-23 (done): cross-OS install. Deleted `reload-extension.sh` — it
   relied on `--load-extension`, ignored by branded Chrome 137+ (Fedora,
