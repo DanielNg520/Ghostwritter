@@ -8,6 +8,26 @@ LLM backend.
 
 Read this file first. Update it after every implementation change.
 
+## STATUS — read first (all machines)
+
+Verified 2026-10-04: Mac, Fedora, Xubuntu run the same code and data. Stable.
+- Rule: take no further action unless a new feature is added.
+- Do not re-audit, re-sync or re-test; known differences below are accepted.
+- Code: all three at `bcd75ae`; `smoke_test.py` 52/52 on Fedora and Xubuntu.
+- Files: `docs/` and `workspace/sample/` hash-identical across machines.
+- `chrome.storage`: `rulesText`, `memoryText`, sample contents identical.
+- Live writer test: Mac passes on `local`/`gemini-3.8-flash`; Xubuntu passes on OpenRouter.
+
+Accepted differences (not bugs):
+- API keys, endpoints and `generationProvider` are per machine; Xubuntu defaults to OpenRouter.
+- Fedora and Xubuntu store samples as `.txt` names, Mac as `.md`; filenames appear in prompts.
+- Mac has no saved OpenRouter/Groq model slugs; the other two do.
+- `workspace/review/` and `workspace/writing/` outputs differ; the extension never reads them.
+- `profileInfo` and `personalizationText` are unset everywhere.
+- Fedora and Xubuntu get Google 503 "high demand" on `local`/`gemini-3.8-flash`; Mac does not. Suspected per-key quota, unverified.
+
+Not verified: Chrome extension reload, extension ID `djollbmehcmhelbfnhhogookmleldfmc`, and Settings console on Fedora/Xubuntu (no session can drive Chrome).
+
 ## Architecture
 
 - **extension/** — MV3 extension, side-panel UI.
@@ -186,6 +206,8 @@ Read this file first. Update it after every implementation change.
   open a product page (Review mode) or any page (General mode) → Generate.
 
 ## Carryover
+
+- 2026-10-04 (done): cross-machine parity check, Mac/Fedora/Xubuntu. Method: salted HMAC hashes of untracked files and `chrome.storage` (temp-profile copy via Playwright, keys/URLs stripped), live sidebar generation. Result and accepted differences are in STATUS above. No code changed.
 
 - 2026-09-28 (done): Fedora and Xubuntu repos are carbon copies at the same
   commit, tracked and ignored files (`docs/`, `workspace/sample/`) checksum-identical.
