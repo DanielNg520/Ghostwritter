@@ -14,7 +14,7 @@ Verified 2026-10-04: Mac, Fedora, Xubuntu run the same code and data. Stable.
 - Rule: take no further action unless a new feature is added.
 - Do not re-audit, re-sync or re-test; known differences below are accepted.
 - Code: all three at `bcd75ae`; `smoke_test.py` 52/52 on Fedora and Xubuntu.
-- Since then: history feature on Mac only (uncommitted); Mac `smoke_test.py` 59/59.
+- Since then: history feature at `aa9d239` on Mac and Fedora, 59/59 on both; Xubuntu pending its next `git pull --ff-only` (offline when synced 2026-10-05).
 - Files: `docs/` and `workspace/sample/` hash-identical across machines.
 - `chrome.storage`: `rulesText`, `memoryText`, sample contents identical.
 - Live writer test: Mac passes on `local`/`gemini-3.8-flash`; Xubuntu passes on OpenRouter.
