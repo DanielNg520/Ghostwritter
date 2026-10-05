@@ -472,6 +472,9 @@ label {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  /* body is a fixed-height flex column; without this the history panel
+     squeezes the output box to zero height. */
+  flex-shrink: 0;
 }
 
 #result-section[hidden] {
@@ -480,7 +483,7 @@ label {
 
 #output {
   flex: 1 1 160px;
-  min-height: 0;
+  min-height: 160px;
   /* Bounded to the sidebar's own viewport instead of growing past it —
      overflow scrolls internally rather than pushing the page taller. */
   max-height: 45vh;

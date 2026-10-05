@@ -14,7 +14,7 @@ Verified 2026-10-04: Mac, Fedora, Xubuntu run the same code and data. Stable.
 - Rule: take no further action unless a new feature is added.
 - Do not re-audit, re-sync or re-test; known differences below are accepted.
 - Code: all three at `bcd75ae`; `smoke_test.py` 52/52 on Fedora and Xubuntu.
-- Since then: history feature at `aa9d239` on Mac and Fedora, 59/59 on both; Xubuntu pending its next `git pull --ff-only` (offline when synced 2026-10-05).
+- Since then: history feature `aa9d239` plus output-box CSS fix; Mac 59/59; Fedora and Xubuntu synced via `git pull --ff-only`.
 - Files: `docs/` and `workspace/sample/` hash-identical across machines.
 - `chrome.storage`: `rulesText`, `memoryText`, sample contents identical.
 - Live writer test: Mac passes on `local`/`gemini-3.8-flash`; Xubuntu passes on OpenRouter.
@@ -217,6 +217,12 @@ Not verified: Chrome extension reload, extension ID `djollbmehcmhelbfnhhogookmle
 ## Carryover
 
 Last audit: 2026-10-05
+
+- 2026-10-05 (done, Mac): output box vanished after generation once history shipped. Cause (unverified in
+  real Chrome): `body` is a fixed-height flex column and `#output` had `min-height: 0`, so the history
+  panel squeezed `#result-section` to zero. Fix: `flex-shrink: 0` on `#result-section`, `min-height: 160px`
+  on `#output` (`sidebar.css`, hand edit). `smoke_test.py` 59/59; no layout test covers it. Open: reload
+  the extension per machine and confirm the box shows.
 
 - 2026-10-05 (done, Mac): local 7-day generation history. Cloud sync (Drive appDataFolder) was
   considered and dropped by user: local-exclusive. UI redesigned after a headless screenshot
