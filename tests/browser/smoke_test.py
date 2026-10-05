@@ -243,6 +243,113 @@ def main():
               and "http://gw-fake/score" in pipeline_result["seenUrls"], pipeline_result)
         pipeline_probe.close()
 
+        # ---- local history feature ----
+        history_probe = ctx.new_page()
+        history_probe.goto(f"chrome-extension://{ext_id}/sidebar.html?tabId=1")
+        history_probe.wait_for_timeout(400)
+        history_result = history_probe.evaluate(
+            """async () => {
+                const mod = await import(chrome.runtime.getURL('lib/history_store.js'));
+                await mod.clearHistory();
+
+                await mod.addHistory({mode: 'general', category: 'formal', title: 'Test Title', text: 'Hello history'});
+                const listed = await mod.listHistory();
+                const one_entry_ok = listed.length === 1
+                    && listed[0].mode === 'general'
+                    && listed[0].category === 'formal'
+                    && listed[0].title === 'Test Title'
+                    && listed[0].text === 'Hello history';
+
+                await mod.addHistory({mode: 'general', category: 'formal', title: 'Whitespace', text: '      '});
+                const still_one = (await mod.listHistory()).length === 1;
+
+                return {one_entry_ok, still_one};
+            }"""
+        )
+        check("history: addHistory stores one entry with matching fields; whitespace-only text adds nothing",
+              history_result["one_entry_ok"] and history_result["still_one"], history_result)
+
+        history_result = history_probe.evaluate(
+            """async () => {
+                const mod = await import(chrome.runtime.getURL('lib/history_store.js'));
+                const { HISTORY_RETENTION_MS } = mod;
+                const old = [{ ts: Date.now() - HISTORY_RETENTION_MS - 60000, mode: 'general', category: 'formal', title: 'Old', text: 'Old entry' }];
+                await chrome.storage.local.set({ history: old });
+                const expired_hidden = (await mod.listHistory()).length === 0;
+
+                await mod.addHistory({mode: 'general', category: 'formal', title: 'New', text: 'New entry'});
+                const raw = await chrome.storage.local.get('history');
+                const expired_gone_from_raw = (raw.history || []).every(e => e.title !== 'Old');
+
+                return {expired_hidden, expired_gone_from_raw};
+            }"""
+        )
+        check("history: expired entry omitted from listHistory and pruned from raw storage after addHistory",
+              history_result["expired_hidden"] and history_result["expired_gone_from_raw"], history_result)
+
+        history_result = history_probe.evaluate(
+            """async () => {
+                const mod = await import(chrome.runtime.getURL('lib/history_store.js'));
+                const { HISTORY_MAX_ENTRIES } = mod;
+                const seeded = [];
+                for (let i = 0; i < HISTORY_MAX_ENTRIES + 5; i++) {
+                    seeded.push({ ts: Date.now() - (HISTORY_MAX_ENTRIES + 5 - i) * 1000, mode: 'general', category: 'formal', title: `S${i}`, text: `Seeded ${i}` });
+                }
+                await chrome.storage.local.set({ history: seeded });
+                await mod.addHistory({mode: 'general', category: 'formal', title: 'Cap', text: 'Capped entry'});
+                const raw = await chrome.storage.local.get('history');
+                return {count: (raw.history || []).length, max: HISTORY_MAX_ENTRIES};
+            }"""
+        )
+        check("history: addHistory caps storage at HISTORY_MAX_ENTRIES",
+              history_result["count"] == history_result["max"], history_result)
+
+        history_result = history_probe.evaluate(
+            """async () => {
+                const seeded = [
+                    { ts: Date.now() - 1000, mode: 'general', category: 'formal', title: 'Second', text: 'Second entry text' },
+                    { ts: Date.now() - 2000, mode: 'cover_letter', category: 'cover_letter', title: 'First', text: 'First entry text' },
+                ];
+                await chrome.storage.local.set({ history: seeded });
+                return true;
+            }"""
+        )
+        history_probe.reload()
+        history_probe.wait_for_timeout(400)
+        history_probe.click("#history summary")
+        check("history: seeded entries visible in UI; empty state hidden",
+              history_probe.locator("#history-list li").count() == 2
+              and history_probe.is_hidden("#history-empty"))
+        history_probe.locator("#history-list li").first.click()
+        check("history: clicking a row restores text and shows result, hides export button",
+              history_probe.input_value("#output") == "Second entry text"
+              and history_probe.is_visible("#result-section")
+              and history_probe.is_hidden("#export-pdf-btn"))
+
+        history_probe.click("#history-clear-btn")
+        history_probe.wait_for_timeout(300)
+        check("history: clear button empties list, shows empty state, removes storage key",
+              history_probe.locator("#history-list li").count() == 0
+              and history_probe.is_visible("#history-empty")
+              and history_probe.evaluate("async () => (await chrome.storage.local.get('history')).history === undefined"))
+
+        history_other = ctx.new_page()
+        history_other.goto(f"chrome-extension://{ext_id}/sidebar.html?tabId=1")
+        history_other.wait_for_timeout(400)
+        history_other.evaluate(
+            """async () => {
+                const mod = await import(chrome.runtime.getURL('lib/history_store.js'));
+                await mod.addHistory({mode: 'general', category: 'formal', title: 'Cross panel', text: 'from other panel'});
+            }"""
+        )
+        history_probe.wait_for_timeout(300)
+        check("history: a write from another panel refreshes this panel's list",
+              history_probe.locator("#history-list li").count() == 1)
+        history_other.close()
+
+        history_probe.evaluate("() => chrome.storage.local.remove('history')")
+        history_probe.close()
+
         # ---- sidebar.html: panel behavior ----
         # A panel restored by Chrome on relaunch (no fresh toolbar click, so
         # no ?tabId=) must still work -- it used to go completely inert here

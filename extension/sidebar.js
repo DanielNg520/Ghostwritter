@@ -1,6 +1,7 @@
 import { listSampleCategories, readSamplesText, ALWAYS_CATEGORY } from './lib/samples_store.js';
 import { buildContext, buildTextPrompt, buildGeneralistPrompt } from './lib/prompt_builders.js';
 import { runGenerationPipeline, MAX_REFINE_ATTEMPTS } from './lib/generation_pipeline.js';
+import { addHistory, listHistory, clearHistory } from './lib/history_store.js';
 
 const commentInput = document.getElementById("comment");
 const generateBtn = document.getElementById("generate-btn");
@@ -16,6 +17,9 @@ const resultSection = document.getElementById("result-section");
 const setupHint = document.getElementById("setup-hint");
 const setupHintSettingsBtn = document.getElementById("setup-hint-settings-btn");
 const stepElements = [...document.querySelectorAll(".step[data-step]")];
+const historyList = document.getElementById("history-list");
+const historyEmpty = document.getElementById("history-empty");
+const historyClearBtn = document.getElementById("history-clear-btn");
 
 const boundTabId = (() => {
   const match = new URLSearchParams(location.search).get("tabId");
@@ -183,6 +187,55 @@ async function initPanel() {
 }
 
 initPanel();
+renderHistory();
+
+async function renderHistory() {
+  const entries = await listHistory();
+  historyList.replaceChildren();
+
+  for (const entry of entries) {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "history-item";
+    button.title = entry.title;
+
+    const titleSpan = document.createElement("span");
+    titleSpan.className = "history-title";
+    titleSpan.textContent = entry.title || "Untitled";
+
+    const metaSpan = document.createElement("span");
+    metaSpan.className = "history-meta";
+    metaSpan.textContent = `${capitalizeCategory(entry.category)} · ${new Date(entry.ts).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+
+    button.append(titleSpan, metaSpan);
+    li.append(button);
+    li.dataset.text = entry.text;
+    historyList.appendChild(li);
+  }
+
+  historyEmpty.hidden = entries.length > 0;
+}
+
+historyList.addEventListener("click", (event) => {
+  const li = event.target.closest("li");
+  if (!li || !historyList.contains(li)) return;
+  const text = li.dataset.text;
+  if (text === undefined) return;
+  output.value = text;
+  resultSection.hidden = false;
+  exportPdfBtn.hidden = true;
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.history) {
+    renderHistory();
+  }
+});
+
+historyClearBtn.addEventListener("click", async () => {
+  await clearHistory();
+});
 
 let currentMode = "review"; // "review" | "general"
 
@@ -310,6 +363,12 @@ async function generateReview() {
   resultSection.hidden = false;
   setStep("review");
   progressFill.style.width = "100%";
+
+  try {
+    await addHistory({ mode: "review", category: "review", title, text });
+  } catch {
+    // History saving is best-effort; a failure here must not mask a successful generation.
+  }
 }
 
 async function generateWriting() {
@@ -344,6 +403,12 @@ async function generateWriting() {
   resultSection.hidden = false;
   setStep("review");
   progressFill.style.width = "100%";
+
+  try {
+    await addHistory({ mode: "general", category, title, text: resultText });
+  } catch {
+    // History saving is best-effort; a failure here must not mask a successful generation.
+  }
 
   if (category === "cover_letter" && resultText) {
     exportPdfBtn.hidden = false;

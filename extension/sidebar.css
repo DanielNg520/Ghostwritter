@@ -515,3 +515,103 @@ label {
   display: none;
 }
 
+/* ---------- History panel ---------- */
+
+#history {
+  margin-top: var(--space-3);
+}
+
+#history summary {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+#history-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-2) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.history-item {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.history-item:hover,
+.history-item:focus-visible {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-soft);
+}
+
+.history-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.history-title,
+.history-meta {
+  display: block;
+}
+
+.history-title {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#history-empty {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+#history-empty[hidden] {
+  display: none;
+}
+
+#history-clear-btn {
+  background-color: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  margin-top: var(--space-2);
+}
+
+#history-clear-btn:hover:not(:disabled) {
+  border-color: var(--color-text-muted);
+  background-color: var(--color-bg);
+}
+

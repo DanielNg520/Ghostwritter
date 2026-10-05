@@ -62,9 +62,16 @@
   <div id="status-message"></div>
 
   <div id="result-section" hidden>
-    <textarea id="output" readonly placeholder="Generated review will appear here..."></textarea>
+    <textarea id="output" readonly placeholder="Generated text will appear here..."></textarea>
     <button id="export-pdf-btn" hidden>Export as PDF</button>
   </div>
+
+  <details id="history">
+    <summary>History (last 7 days)</summary>
+    <ul id="history-list"></ul>
+    <p id="history-empty">No saved generations yet.</p>
+    <button id="history-clear-btn" type="button">Clear history</button>
+  </details>
 
   <script src="lib/jspdf.umd.min.js"></script>
   <script src="lib/format.js"></script>

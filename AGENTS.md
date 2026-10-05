@@ -14,6 +14,7 @@ Verified 2026-10-04: Mac, Fedora, Xubuntu run the same code and data. Stable.
 - Rule: take no further action unless a new feature is added.
 - Do not re-audit, re-sync or re-test; known differences below are accepted.
 - Code: all three at `bcd75ae`; `smoke_test.py` 52/52 on Fedora and Xubuntu.
+- Since then: history feature on Mac only (uncommitted); Mac `smoke_test.py` 59/59.
 - Files: `docs/` and `workspace/sample/` hash-identical across machines.
 - `chrome.storage`: `rulesText`, `memoryText`, sample contents identical.
 - Live writer test: Mac passes on `local`/`gemini-3.8-flash`; Xubuntu passes on OpenRouter.
@@ -146,6 +147,14 @@ Not verified: Chrome extension reload, extension ID `djollbmehcmhelbfnhhogookmle
   - `lib/format.js` — `capitalizeCategory(word)` ("cover_letter" -> "Cover
     Letter"), shared by `settings.js` and `sidebar.js` instead of each
     defining its own copy.
+  - `lib/history_store.js` — local-only generation history (`chrome.storage.local`
+    key `history`, newest first): `addHistory`/`listHistory`/`clearHistory`,
+    `HISTORY_RETENTION_MS` (7 days) and `HISTORY_MAX_ENTRIES` (200) live only here.
+    `generateReview()`/`generateWriting()` save after success (best-effort, errors
+    swallowed). Sidebar `<details id="history">` renders button rows (title, then
+    category and date); one `chrome.storage.onChanged` listener re-renders every open
+    panel. Click restores text to `#output` and hides export. Never synced; not in Import Backup.
+    Expired entries are hidden at read and pruned at write, so they linger on disk until then.
 - **workspace/** and **docs/** — legacy, unused by the extension (gitignored
   personal content). Their rules/memory/samples were exported to a JSON for
   Settings → Import Backup; safe to delete once imported.
@@ -207,7 +216,24 @@ Not verified: Chrome extension reload, extension ID `djollbmehcmhelbfnhhogookmle
 
 ## Carryover
 
-- 2026-10-04 (done): cross-machine parity check, Mac/Fedora/Xubuntu. Method: salted HMAC hashes of untracked files and `chrome.storage` (temp-profile copy via Playwright, keys/URLs stripped), live sidebar generation. Result and accepted differences are in STATUS above. No code changed.
+Last audit: 2026-10-05
+
+- 2026-10-05 (done, Mac): local 7-day generation history. Cloud sync (Drive appDataFolder) was
+  considered and dropped by user: local-exclusive. UI redesigned after a headless screenshot
+  review: two-line button rows, real ellipsis, dark mode checked. Dispatched via TriAPI
+  (~13 DeepSeek calls, ~$0.01); audit rejected 4 outputs, all re-dispatched: CSS `display` on
+  `<details>`, closed `<details>` in a test, `\n` in a non-raw Python string, wrong seed order.
+  Wrap-up audit: stale lists across per-tab panels, fixed with one `onChanged` listener plus a
+  cross-panel test. No manifest change (~1MB worst case fits default quota). `smoke_test.py`
+  59/59. Open: reload the extension per machine. Accepted: expired entries linger on disk
+  until the next write or Clear; concurrent writes from two panels could drop one entry.
+  TriAPI tips: run its scripts with `~/Documents/Coding/TriAPI/.venv/bin/python`; `--new`
+  needs a fenced reply; `--response` must be a path under `logs/responses/`.
+
+- 2026-10-04 (done): cross-machine parity check, Mac/Fedora/Xubuntu. Method: salted HMAC hashes
+  of untracked files and `chrome.storage` (temp-profile copy via Playwright, keys/URLs
+  stripped), live sidebar generation. Result and accepted differences are in STATUS above.
+  No code changed.
 
 - 2026-09-28 (done): Fedora and Xubuntu repos are carbon copies at the same
   commit, tracked and ignored files (`docs/`, `workspace/sample/`) checksum-identical.
